@@ -1,0 +1,4 @@
+/target
+.venv/
+.DS_Store
+scripts/native-click

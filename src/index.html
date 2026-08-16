@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>墨斗</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="lib/xterm.css">
+    <link rel="stylesheet" href="lib/monaco-editor.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 主容器 -->
+        <div class="main-container">
+            <!-- 活动栏 -->
+            <div class="activity-bar">
+                <div class="activity-icon active" data-panel="explorer" title="资源管理器 (⌘⇧E)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+                    </svg>
+                </div>
+                <div class="activity-icon" data-panel="search" title="搜索 (⌘⇧F)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+                    </svg>
+                </div>
+                <div class="activity-icon" data-panel="git" title="源代码管理 (⌘⇧G)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/>
+                        <path d="M6 9v6M18 9a9 9 0 01-9 9"/>
+                    </svg>
+                </div>
+                <div class="activity-icon" data-panel="debug" title="运行和调试 (⌘⇧D)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M5 3l14 9-14 9V3z"/>
+                    </svg>
+                </div>
+                <div class="activity-icon bottom" data-panel="settings" title="设置 (⌘,)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 侧边栏 -->
+            <div class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    <span id="sidebar-title">资源管理器</span>
+                    <div class="sidebar-actions">
+                        <button class="btn-icon" id="btn-new-file" title="新建文件" style="display:none;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14"/>
+                            </svg>
+                        </button>
+                        <button class="btn-icon" id="btn-new-folder" title="新建文件夹" style="display:none;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+                            </svg>
+                        </button>
+                        <button class="btn-icon" id="btn-refresh" title="刷新">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6M1 20v-6h6"/>
+                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                            </svg>
+                        </button>
+                        <button class="btn-icon" id="btn-collapse" title="全部折叠">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M8 3v4a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-4a2 2 0 012-2h3M3 16h3a2 2 0 012 2v4"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="file-tree" id="file-tree">
+                    <div class="empty-state">
+                        <p>未打开文件夹</p>
+                        <button class="btn-primary" id="btn-open-project">打开文件夹</button>
+                    </div>
+                </div>
+                <div class="sidebar-panel" id="sidebar-panel-git" style="display:none;"></div>
+                <div class="sidebar-panel" id="sidebar-panel-placeholder" style="display:none;"></div>
+            </div>
+
+           <!-- 编辑区 -->
+           <div class="editor-area">
+                <div class="editor-column">
+               <!-- 标签栏 -->
+               <div class="tab-bar" id="tab-bar"></div>
+
+               <!-- 编辑器内容 -->
+                <div class="editor-content" id="editor-content">
+                    <div class="welcome-screen" id="welcome-screen">
+                        <div class="welcome-logo">
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#007acc" stroke-width="1">
+                                <rect x="8" y="4" width="8" height="12" rx="1"/>
+                                <circle cx="12" cy="18" r="2"/>
+                                <path d="M14 18h4l2 2"/>
+                            </svg>
+                        </div>
+                        <h1>墨斗</h1>
+                        <p class="subtitle">轻量代码编辑器 + 原生终端</p>
+                        <div class="shortcut-list">
+                            <div class="shortcut-item">
+                                <span class="shortcut-key">⌘O</span>
+                                <span>打开文件夹</span>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-key">⌘P</span>
+                                <span>转到文件</span>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-key">⌘⇧P</span>
+                                <span>命令面板</span>
+                            </div>
+                            <div class="shortcut-item">
+                                <span class="shortcut-key">⌘`</span>
+                                <span>新建终端</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="monaco-editor" style="display:none; width:100%; height:100%;"></div>
+                </div>
+
+                </div><!-- /.editor-column -->
+
+                <!-- 停靠槽调整手柄 -->
+                <div class="dock-resize-handle" id="dock-resize-handle"></div>
+
+                <!-- 终端面板（内置终端，与编辑器同一窗口） -->
+                <div class="terminal-dock" id="terminal-dock">
+                    <div class="dock-header" id="dock-header">
+                        <div class="dock-header-left">
+                            <span class="dock-title" id="dock-title">终端</span>
+                            <div class="dock-tabs" id="dock-terminal-tabs"></div>
+                        </div>
+                        <div class="dock-actions">
+                            <button class="btn-icon" id="btn-dock-new" title="新建终端">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 5v14M5 12h14"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon" id="btn-dock-kill" title="关闭当前终端">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/>
+                                </svg>
+                            </button>
+                            <button class="btn-icon" id="btn-dock-toggle" title="折叠/展开">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 18l6-6-6-6"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="dock-slot" id="dock-slot"></div>
+                </div>
+           </div>
+        </div>
+
+        <!-- 状态栏 -->
+        <div class="status-bar" id="status-bar">
+            <div class="status-left">
+                <span class="status-item" id="git-branch" style="display:none;" title="Git 分支">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/>
+                        <path d="M6 9v6M18 9a9 9 0 01-9 9"/>
+                    </svg>
+                    <span id="branch-name">main</span>
+                </span>
+                <span class="status-item" id="git-status" style="display:none;" title="Git 状态">
+                    <span id="git-changes">0</span>
+                </span>
+                <span class="status-item" id="status-message">就绪</span>
+            </div>
+            <div class="status-right">
+                <span class="status-item" id="cursor-position" style="display:none;" title="光标位置">Ln 1, Col 1</span>
+                <span class="status-item" id="editor-spaces" style="display:none;" title="缩进">Spaces: 4</span>
+                <span class="status-item" id="editor-encoding" style="display:none;" title="编码">UTF-8</span>
+                <span class="status-item" id="editor-eol" style="display:none;" title="行尾序列">LF</span>
+                <span class="status-item" id="file-language" style="display:none;" title="语言模式">Plain Text</span>
+            </div>
+        </div>
+
+        <!-- 搜索浮层 -->
+        <div class="overlay" id="search-overlay" style="display:none;">
+            <div class="overlay-backdrop"></div>
+            <div class="overlay-content search-box">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+                    </svg>
+                    <input type="text" class="search-input" id="search-input" placeholder="转到文件...">
+                </div>
+                <div class="search-results" id="search-results"></div>
+            </div>
+        </div>
+
+        <!-- 命令面板浮层 -->
+        <div class="overlay" id="command-overlay" style="display:none;">
+            <div class="overlay-backdrop"></div>
+            <div class="overlay-content command-box">
+                <div class="search-input-wrapper">
+                    <span class="command-prefix">></span>
+                    <input type="text" class="search-input" id="command-input" placeholder="输入命令...">
+                </div>
+                <div class="command-results" id="command-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- xterm 必须在 monaco AMD loader 之前加载，否则 UMD 会注册为 AMD 模块而不暴露全局变量 -->
+    <script src="lib/xterm.js"></script>
+    <script src="lib/xterm-addon-fit.js"></script>
+    <script src="lib/vs/loader.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

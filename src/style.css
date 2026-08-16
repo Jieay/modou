@@ -1,0 +1,759 @@
+/* 墨斗 IDE - VS Code Dark+ 100% 还原 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-editor: #1e1e1e;
+    --bg-sidebar: #252526;
+    --bg-activity: #333333;
+    --bg-tab: #2d2d2d;
+    --bg-tab-active: #1e1e1e;
+    --bg-status: #007acc;
+    --bg-panel: #1e1e1e;
+    --bg-input: #3c3c3c;
+    --bg-hover: #2a2d2e;
+    --bg-selected: #094771;
+    --fg-primary: #d4d4d4;
+    --fg-secondary: #858585;
+    --fg-active: #ffffff;
+    --border: #3c3c3c;
+    --accent: #007acc;
+    --keyword: #569cd6;
+    --string: #ce9178;
+    --comment: #6a9955;
+    --function: #dcdcaa;
+    --variable: #9cdcfe;
+    --type: #4ec9b0;
+    --error: #f44747;
+    --warning: #ffcc02;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", sans-serif;
+    background: var(--bg-editor);
+    color: var(--fg-primary);
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100%;
+}
+
+/* ========== 主容器 ========== */
+.main-container {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ========== 活动栏 ========== */
+.activity-bar {
+    width: 48px;
+    background: var(--bg-activity);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 34px;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.activity-icon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    position: relative;
+    transition: color 0.15s;
+}
+
+.activity-icon:hover {
+    color: var(--fg-active);
+}
+
+.activity-icon.active {
+    color: var(--fg-active);
+}
+
+.activity-icon.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--accent);
+}
+
+.activity-icon.bottom {
+    margin-top: auto;
+    margin-bottom: 8px;
+}
+
+/* ========== 侧边栏 ========== */
+.sidebar {
+    width: 260px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.sidebar-header {
+    /* 顶部留白避开 macOS 红绿灯按钮（约 y<28，x<80），与活动栏 34px 对齐再留余量 */
+    padding: 38px 16px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.sidebar-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.sidebar-actions .btn-icon {
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.sidebar:hover .sidebar-actions .btn-icon {
+    opacity: 1;
+}
+
+.file-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.empty-state {
+    padding: 20px;
+    text-align: center;
+    color: var(--fg-secondary);
+}
+
+.empty-state p {
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+
+/* 文件树节点 */
+.tree-item {
+    display: flex;
+    align-items: center;
+    padding: 3px 8px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 22px;
+    color: #cccccc;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.tree-item:hover {
+    background: var(--bg-hover);
+}
+
+.tree-item.selected {
+    background: var(--bg-selected);
+    color: var(--fg-active);
+}
+
+.tree-item .icon {
+    width: 20px;
+    text-align: center;
+    margin-right: 4px;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.tree-item .chevron {
+    width: 16px;
+    font-size: 10px;
+    color: var(--fg-secondary);
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+
+.tree-item.expanded .chevron {
+    transform: rotate(90deg);
+}
+
+.tree-children {
+    margin-left: 12px;
+    display: none;
+}
+
+.tree-children.expanded {
+    display: block;
+}
+
+/* ========== 编辑区 ========== */
+.editor-area {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    background: var(--bg-editor);
+    min-width: 0;
+    position: relative;
+}
+
+/* ========== 编辑器列（含标签栏、编辑器、legacy 面板） ========== */
+.editor-column {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-editor);
+    position: relative;
+}
+
+/* ========== 终端停靠槽 ========== */
+.terminal-dock {
+    width: var(--dock-width, 38%);
+    min-width: 240px;
+    max-width: 60%;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    background: var(--bg-editor);
+}
+
+.terminal-dock.collapsed {
+    width: 0;
+    min-width: 0;
+    border-left: none;
+    overflow: hidden;
+}
+
+.dock-header {
+    height: 35px;
+    background: var(--bg-tab);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+}
+
+.dock-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dock-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    -webkit-app-region: drag;
+    min-width: 0;
+    flex: 1;
+}
+
+.dock-provider-select {
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    outline: none;
+    -webkit-app-region: no-drag;
+    max-width: 140px;
+}
+
+.dock-provider-select:hover {
+    border-color: var(--accent);
+}
+
+.dock-actions {
+    display: flex;
+    gap: 2px;
+    -webkit-app-region: no-drag;
+}
+
+.dock-slot {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 内置终端标签页 */
+.dock-tabs {
+    display: flex;
+    gap: 12px;
+    margin-left: 8px;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.dock-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 2px;
+    border: none;
+    background: none;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    white-space: nowrap;
+    border-bottom: 1px solid transparent;
+    -webkit-app-region: no-drag;
+}
+
+.dock-tab-label {
+    cursor: pointer;
+}
+
+.dock-tab-close {
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 4px;
+    border-radius: 3px;
+    color: var(--fg-secondary);
+}
+
+.dock-tab-close:hover {
+    background: var(--bg-input);
+    color: var(--fg-active);
+}
+
+.dock-tab.active {
+    color: var(--fg-active);
+    border-bottom-color: var(--accent);
+}
+
+/* 内置终端容器（xterm.js） */
+.dock-term-container {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-editor);
+}
+
+.dock-slot .xterm {
+    height: 100%;
+    padding: 4px 8px;
+}
+
+.dock-resize-handle {
+    width: 4px;
+    background: transparent;
+    cursor: ew-resize;
+    flex-shrink: 0;
+    z-index: 10;
+    display: none;
+    transition: background 0.15s;
+}
+
+.dock-resize-handle:hover {
+    background: var(--accent);
+}
+
+.dock-resize-handle.visible {
+    display: block;
+}
+
+/* 停靠槽状态占位层 */
+.dock-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+    color: var(--fg-secondary);
+    font-size: 13px;
+}
+
+.dock-placeholder .dock-error {
+    color: var(--error);
+    line-height: 1.5;
+}
+
+.dock-placeholder .dock-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: dock-spin 0.8s linear infinite;
+}
+
+@keyframes dock-spin {
+    to { transform: rotate(360deg); }
+}
+/* ========== 标签栏 ========== */
+.tab-bar {
+    height: 35px;
+    background: var(--bg-tab);
+    display: flex;
+    align-items: flex-end;
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.tab {
+    height: 35px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    background: var(--bg-tab);
+    border-right: 1px solid var(--bg-editor);
+    font-size: 13px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    min-width: 120px;
+    max-width: 200px;
+    position: relative;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.tab.active {
+    background: var(--bg-tab-active);
+    color: var(--fg-active);
+}
+
+.tab.active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--accent);
+}
+
+.tab:hover:not(.active) {
+    background: #2a2a2a;
+    color: #cccccc;
+}
+
+.tab .dirty-dot {
+    color: #c5c5c5;
+    margin-right: 4px;
+}
+
+.tab .close-btn {
+    margin-left: 8px;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 14px;
+    opacity: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.tab:hover .close-btn {
+    opacity: 1;
+}
+
+.tab .close-btn:hover {
+    background: #3c3c3c;
+}
+
+/* ========== 编辑器内容 ========== */
+.editor-content {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    position: relative;
+}
+
+.welcome-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+}
+
+.welcome-logo {
+    opacity: 0.6;
+}
+
+.welcome-screen h1 {
+    font-size: 32px;
+    font-weight: 300;
+    color: var(--fg-secondary);
+}
+
+.welcome-screen .subtitle {
+    font-size: 16px;
+    color: var(--fg-secondary);
+}
+
+.shortcut-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--fg-secondary);
+}
+
+.shortcut-key {
+    background: var(--bg-input);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+/* Monaco Editor 容器 */
+#monaco-editor {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+}
+
+/* ========== 状态栏 ========== */
+.status-bar {
+    height: 22px;
+    background: var(--bg-status);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-size: 12px;
+    color: #ffffff;
+    flex-shrink: 0;
+}
+
+.status-left, .status-right {
+    display: flex;
+    gap: 16px;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    padding: 0 4px;
+    border-radius: 2px;
+    transition: background 0.15s;
+}
+
+.status-item:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+/* ========== 浮层 ========== */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 60px;
+}
+
+.overlay-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+}
+
+.overlay-content {
+    position: relative;
+    width: 500px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    overflow: hidden;
+}
+
+.search-input-wrapper {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    background: var(--bg-input);
+    border-bottom: 1px solid var(--border);
+}
+
+.search-icon {
+    color: var(--fg-secondary);
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.command-prefix {
+    color: var(--fg-secondary);
+    margin-right: 4px;
+    font-weight: 600;
+}
+
+.search-input {
+    flex: 1;
+    padding: 12px 0;
+    background: transparent;
+    border: none;
+    color: var(--fg-active);
+    font-size: 14px;
+    outline: none;
+}
+
+.search-input::placeholder {
+    color: var(--fg-secondary);
+}
+
+.search-results, .command-results {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.search-result-item, .command-result-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.search-result-item:hover,
+.search-result-item.selected,
+.command-result-item:hover,
+.command-result-item.selected {
+    background: var(--bg-selected);
+}
+
+.file-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.file-path {
+    color: var(--fg-secondary);
+    font-size: 12px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+/* ========== 按钮 ========== */
+.btn-primary {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.btn-primary:hover {
+    background: #1a8ad4;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: all 0.15s;
+}
+
+.btn-icon:hover {
+    color: var(--fg-active);
+    background: var(--bg-hover);
+}
+
+/* ========== 滚动条 ========== */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #424242;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #4f4f4f;
+}
+
+/* ========== 动画 ========== */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.overlay-content {
+    animation: fadeIn 0.15s ease-out;
+}

@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>墨斗 IDE - 设计原型</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 标题栏 */
+        .title-bar {
+            height: 28px;
+            background: #3c3c3c;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: #cccccc;
+            -webkit-app-region: drag;
+            position: relative;
+        }
+
+        .title-bar::before {
+            content: "● ● ●";
+            position: absolute;
+            left: 12px;
+            font-size: 12px;
+            letter-spacing: 8px;
+            color: #ff5f57;
+        }
+
+        .title-bar::after {
+            content: "墨斗 — 轻量代码编辑器";
+        }
+
+        /* 主容器 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* 活动栏 */
+        .activity-bar {
+            width: 48px;
+            background: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 8px;
+            gap: 4px;
+        }
+
+        .activity-icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            color: #858585;
+            transition: color 0.15s;
+            position: relative;
+        }
+
+        .activity-icon:hover {
+            color: #ffffff;
+        }
+
+        .activity-icon.active {
+            color: #ffffff;
+        }
+
+        .activity-icon.active::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #007acc;
+        }
+
+        .activity-icon.bottom {
+            margin-top: auto;
+        }
+
+        /* 侧边栏 */
+        .sidebar {
+            width: 260px;
+            background: #252526;
+            border-right: 1px solid #1e1e1e;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 10px 16px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #858585;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .file-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 3px 8px;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 22px;
+            color: #cccccc;
+            user-select: none;
+        }
+
+        .tree-item:hover {
+            background: #2a2d2e;
+        }
+
+        .tree-item.selected {
+            background: #094771;
+            color: #ffffff;
+        }
+
+        .tree-item .icon {
+            width: 20px;
+            text-align: center;
+            margin-right: 4px;
+            font-size: 14px;
+        }
+
+        .tree-item .chevron {
+            width: 16px;
+            font-size: 10px;
+            color: #858585;
+        }
+
+        .tree-children {
+            margin-left: 12px;
+        }
+
+        /* 编辑区 */
+        .editor-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+        }
+
+        /* 标签栏 */
+        .tab-bar {
+            height: 35px;
+            background: #252526;
+            display: flex;
+            align-items: flex-end;
+            overflow-x: auto;
+        }
+
+        .tab {
+            height: 35px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            background: #2d2d2d;
+            border-right: 1px solid #1e1e1e;
+            font-size: 13px;
+            color: #969696;
+            cursor: pointer;
+            min-width: 120px;
+            max-width: 200px;
+            position: relative;
+        }
+
+        .tab.active {
+            background: #1e1e1e;
+            color: #ffffff;
+        }
+
+        .tab.active::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #007acc;
+        }
+
+        .tab:hover:not(.active) {
+            background: #2a2a2a;
+            color: #cccccc;
+        }
+
+        .tab .dirty-dot {
+            color: #c5c5c5;
+            margin-right: 4px;
+        }
+
+        .tab .close-btn {
+            margin-left: 8px;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3px;
+            font-size: 14px;
+            opacity: 0;
+        }
+
+        .tab:hover .close-btn {
+            opacity: 1;
+        }
+
+        .tab .close-btn:hover {
+            background: #3c3c3c;
+        }
+
+        /* 编辑器内容 */
+        .editor-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .line-numbers {
+            width: 50px;
+            padding: 8px 8px 8px 0;
+            text-align: right;
+            color: #858585;
+            user-select: none;
+            background: #1e1e1e;
+        }
+
+        .line-numbers div {
+            padding-right: 8px;
+        }
+
+        .line-numbers .active {
+            color: #c6c6c6;
+        }
+
+        .code-content {
+            flex: 1;
+            padding: 8px 16px 8px 8px;
+            overflow: auto;
+            white-space: pre;
+        }
+
+        /* 语法高亮 */
+        .keyword { color: #569cd6; }
+        .string { color: #ce9178; }
+        .comment { color: #6a9955; }
+        .function { color: #dcdcaa; }
+        .variable { color: #9cdcfe; }
+        .type { color: #4ec9b0; }
+        .number { color: #b5cea8; }
+        .operator { color: #d4d4d4; }
+
+        /* 面板 */
+        .panel {
+            height: 200px;
+            background: #1e1e1e;
+            border-top: 1px solid #3c3c3c;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            height: 30px;
+            background: #252526;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #858585;
+            text-transform: uppercase;
+            border-bottom: 1px solid #3c3c3c;
+        }
+
+        .panel-tabs {
+            display: flex;
+            gap: 16px;
+            margin-left: 24px;
+        }
+
+        .panel-tab {
+            cursor: pointer;
+            padding: 4px 0;
+            border-bottom: 1px solid transparent;
+        }
+
+        .panel-tab.active {
+            color: #ffffff;
+            border-bottom-color: #007acc;
+        }
+
+        .terminal-content {
+            flex: 1;
+            padding: 8px 12px;
+            font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            overflow-y: auto;
+            background: #1e1e1e;
+        }
+
+        .terminal-line {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .terminal-prompt {
+            color: #4ec9b0;
+        }
+
+        .terminal-command {
+            color: #d4d4d4;
+        }
+
+        .terminal-output {
+            color: #858585;
+        }
+
+        /* 状态栏 */
+        .status-bar {
+            height: 22px;
+            background: #007acc;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 12px;
+            color: #ffffff;
+            gap: 16px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+
+        .status-item:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .status-right {
+            margin-left: auto;
+            display: flex;
+            gap: 16px;
+        }
+
+        /* 搜索框（浮层） */
+        .search-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 80px;
+            z-index: 1000;
+        }
+
+        .search-overlay.show {
+            display: flex;
+        }
+
+        .search-box {
+            width: 500px;
+            background: #252526;
+            border: 1px solid #3c3c3c;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            overflow: hidden;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #3c3c3c;
+            border: none;
+            color: #ffffff;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .search-input::placeholder {
+            color: #858585;
+        }
+
+        .search-results {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .search-result-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .search-result-item:hover,
+        .search-result-item.selected {
+            background: #094771;
+        }
+
+        .search-result-item .file-icon {
+            font-size: 14px;
+        }
+
+        .search-result-item .file-path {
+            color: #858585;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4f4f4f;
+        }
+    </style>
+</head>
+<body>
+    <!-- 标题栏 -->
+    <div class="title-bar"></div>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 活动栏 -->
+        <div class="activity-bar">
+            <div class="activity-icon active" title="资源管理器">📁</div>
+            <div class="activity-icon" title="搜索">🔍</div>
+            <div class="activity-icon" title="源代码管理">⎇</div>
+            <div class="activity-icon" title="运行和调试">▶️</div>
+            <div class="activity-icon bottom" title="设置">⚙️</div>
+        </div>
+
+        <!-- 侧边栏 -->
+        <div class="sidebar">
+            <div class="sidebar-header">资源管理器</div>
+            <div class="file-tree">
+                <div class="tree-item">
+                    <span class="chevron">▾</span>
+                    <span class="icon">📂</span>
+                    <span>modou</span>
+                </div>
+                <div class="tree-children">
+                    <div class="tree-item">
+                        <span class="chevron">▸</span>
+                        <span class="icon">📁</span>
+                        <span>src</span>
+                    </div>
+                    <div class="tree-item selected">
+                        <span class="chevron"></span>
+                        <span class="icon">🦀</span>
+                        <span>main.rs</span>
+                    </div>
+                    <div class="tree-item">
+                        <span class="chevron"></span>
+                        <span class="icon">🦀</span>
+                        <span>app.rs</span>
+                    </div>
+                    <div class="tree-item">
+                        <span class="chevron"></span>
+                        <span class="icon">📋</span>
+                        <span>Cargo.toml</span>
+                    </div>
+                    <div class="tree-item">
+                        <span class="chevron"></span>
+                        <span class="icon">📝</span>
+                        <span>README.md</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 编辑区 -->
+        <div class="editor-area">
+            <!-- 标签栏 -->
+            <div class="tab-bar">
+                <div class="tab active">
+                    <span class="dirty-dot">●</span>
+                    <span>main.rs</span>
+                    <span class="close-btn">×</span>
+                </div>
+                <div class="tab">
+                    <span>app.rs</span>
+                    <span class="close-btn">×</span>
+                </div>
+                <div class="tab">
+                    <span>lib.rs</span>
+                    <span class="close-btn">×</span>
+                </div>
+            </div>
+
+            <!-- 编辑器内容 -->
+            <div class="editor-content">
+                <div class="line-numbers">
+                    <div>1</div>
+                    <div>2</div>
+                    <div>3</div>
+                    <div>4</div>
+                    <div>5</div>
+                    <div>6</div>
+                    <div>7</div>
+                    <div>8</div>
+                    <div class="active">9</div>
+                    <div>10</div>
+                    <div>11</div>
+                    <div>12</div>
+                </div>
+                <div class="code-content">
+<span class="keyword">use</span> <span class="variable">iced</span>::{<span class="type">Application</span>, <span class="type">Settings</span>};
+
+<span class="keyword">fn</span> <span class="function">main</span>() -> <span class="type">iced</span>::<span class="type">Result</span> {
+    <span class="type">tracing_subscriber</span>::<span class="function">fmt</span>()
+        .<span class="function">with_env_filter</span>(
+            <span class="type">tracing_subscriber</span>::<span class="type">EnvFilter</span>::<span class="function">from_default_env</span>()
+                .<span class="function">add_directive</span>(<span class="string">"modou=debug"</span>.<span class="function">parse</span>().<span class="function">unwrap</span>()),
+        )
+        .<span class="function">init</span>();
+
+    <span class="type">iced</span>::<span class="function">application</span>(<span class="string">"墨斗"</span>, <span class="type">ModouApp</span>::update, <span class="type">ModouApp</span>::view)
+        .<span class="function">theme</span>(<span class="type">ModouApp</span>::theme)
+        .<span class="function">run</span>()
+}
+                </div>
+            </div>
+
+            <!-- 面板 -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>终端</span>
+                    <div class="panel-tabs">
+                        <span class="panel-tab active">zsh</span>
+                        <span class="panel-tab">+</span>
+                    </div>
+                </div>
+                <div class="terminal-content">
+                    <div class="terminal-line">
+                        <span class="terminal-prompt">➜  modou git:(main) </span>
+                        <span class="terminal-command">cargo build --release</span>
+                    </div>
+                    <div class="terminal-line terminal-output">   Compiling modou v0.2.0 (/Users/jiangjunjie/modou)</div>
+                    <div class="terminal-line terminal-output">    Finished `release` profile [optimized] target(s) in 2.75s</div>
+                    <div class="terminal-line">
+                        <span class="terminal-prompt">➜  modou git:(main) </span>
+                        <span class="terminal-command">kimi</span>
+                    </div>
+                    <div class="terminal-line terminal-output">✻ Welcome to Kimi Code CLI!</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <div class="status-item">⎇ main*</div>
+        <div class="status-item">✓ 0 ⚠ 0</div>
+        <div class="status-right">
+            <div class="status-item">Ln 9, Col 1</div>
+            <div class="status-item">Spaces: 4</div>
+            <div class="status-item">UTF-8</div>
+            <div class="status-item">Rust</div>
+        </div>
+    </div>
+
+    <!-- 搜索浮层（默认隐藏，按 ⌘+P 显示） -->
+    <div class="search-overlay" id="searchOverlay">
+        <div class="search-box">
+            <input type="text" class="search-input" placeholder="搜索文件...">
+            <div class="search-results">
+                <div class="search-result-item selected">
+                    <span class="file-icon">🦀</span>
+                    <span>main.rs</span>
+                    <span class="file-path">src/</span>
+                </div>
+                <div class="search-result-item">
+                    <span class="file-icon">🦀</span>
+                    <span>app.rs</span>
+                    <span class="file-path">src/</span>
+                </div>
+                <div class="search-result-item">
+                    <span class="file-icon">🦀</span>
+                    <span>lib.rs</span>
+                    <span class="file-path">src/</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 简单的交互演示
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+                e.preventDefault();
+                document.getElementById('searchOverlay').classList.toggle('show');
+            }
+            if (e.key === 'Escape') {
+                document.getElementById('searchOverlay').classList.remove('show');
+            }
+        });
+
+        // 点击关闭搜索
+        document.getElementById('searchOverlay').addEventListener('click', (e) => {
+            if (e.target.id === 'searchOverlay') {
+                e.target.classList.remove('show');
+            }
+        });
+
+        // 标签切换
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+            });
+        });
+
+        // 活动栏切换
+        document.querySelectorAll('.activity-icon').forEach(icon => {
+            icon.addEventListener('click', () => {
+                document.querySelectorAll('.activity-icon').forEach(i => i.classList.remove('active'));
+                icon.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
