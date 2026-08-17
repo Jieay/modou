@@ -1453,6 +1453,21 @@
         return null;
     }
 
+    // 文件树选中态跟随当前活动标签（关闭/切换标签后同步）
+    function syncTreeSelectionToActiveTab() {
+        document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
+            el.classList.remove('selected');
+        });
+        if (state.activeTabIndex < 0) return;
+        var tab = state.openTabs[state.activeTabIndex];
+        if (!tab) return;
+        var item = findTreeItem(tab.path);
+        if (item) {
+            item.classList.add('selected');
+            item.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
     // SVG 图标（16x16，参考 VS Code 文件图标风格）
     var SVG_FILE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M4 1.5h5L13 5.5v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><path d="M9 1.5V5.5H13"/></svg>';
     var SVG_FOLDER = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2h2.7c.4 0 .8.16 1.07.44L8.5 3.75h4A1.5 1.5 0 0 1 14 5.25v6.25a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-8A1.5 1.5 0 0 1 3.5 2z"/></svg>';
@@ -1677,6 +1692,7 @@
         state.activeTabIndex = index;
         renderTabs();
         renderEditor();
+        syncTreeSelectionToActiveTab();
         saveSession();
     }
 
@@ -1694,6 +1710,7 @@
             renderEditor();
         }
         renderTabs();
+        syncTreeSelectionToActiveTab();
         saveSession();
     }
 
@@ -1705,6 +1722,7 @@
         state.activeTabIndex = 0;
         renderTabs();
         renderEditor();
+        syncTreeSelectionToActiveTab();
         saveSession();
     }
 
@@ -1716,6 +1734,7 @@
         if (elements['image-viewer']) elements['image-viewer'].style.display = 'none';
         if (elements['welcome-screen']) elements['welcome-screen'].style.display = 'flex';
         renderTabs();
+        syncTreeSelectionToActiveTab();
         saveSession();
     }
 
