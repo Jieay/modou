@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// 最近打开列表最大长度
@@ -78,10 +78,9 @@ pub fn get_recent_projects() -> Vec<String> {
     list()
 }
 
-/// 构建系统菜单（默认菜单基础上，在 App 菜单后插入「文件」菜单）
+/// 构建系统菜单（全中文；默认菜单为英文故整体手工构建）
 pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
-    let menu = Menu::default(app)?;
-
+    // 最近打开子菜单
     let mut recent_sub = SubmenuBuilder::new(app, "最近打开");
     let recents = list();
     if recents.is_empty() {
@@ -102,6 +101,20 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
         );
     }
 
+    // App 菜单（macOS 上此菜单标题由系统显示为应用名）
+    let app_menu = SubmenuBuilder::new(app, "墨斗")
+        .item(&PredefinedMenuItem::about(app, Some("关于墨斗"), None)?)
+        .separator()
+        .item(&PredefinedMenuItem::services(app, Some("服务"))?)
+        .separator()
+        .item(&PredefinedMenuItem::hide(app, Some("隐藏墨斗"))?)
+        .item(&PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?)
+        .item(&PredefinedMenuItem::show_all(app, Some("全部显示"))?)
+        .separator()
+        .item(&PredefinedMenuItem::quit(app, Some("退出墨斗"))?)
+        .build()?;
+
+    // 文件（⌘W 保留给网页内关闭标签，关闭窗口用 ⇧⌘W）
     let file_menu = SubmenuBuilder::new(app, "文件")
         .item(
             &MenuItemBuilder::with_id("modou.open_folder", "打开文件夹…")
@@ -115,9 +128,42 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
         )
         .separator()
         .item(&recent_sub.build()?)
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("modou.close_window", "关闭窗口")
+                .accelerator("CmdOrCtrl+Shift+W")
+                .build(app)?,
+        )
         .build()?;
 
-    menu.insert(&file_menu, 1)?;
+    // 编辑（预置项走原生 selector，网页/终端内复制粘贴依赖它们）
+    let edit_menu = SubmenuBuilder::new(app, "编辑")
+        .item(&PredefinedMenuItem::undo(app, Some("撤销"))?)
+        .item(&PredefinedMenuItem::redo(app, Some("重做"))?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, Some("剪切"))?)
+        .item(&PredefinedMenuItem::copy(app, Some("复制"))?)
+        .item(&PredefinedMenuItem::paste(app, Some("粘贴"))?)
+        .item(&PredefinedMenuItem::select_all(app, Some("全选"))?)
+        .build()?;
+
+    let view_menu = SubmenuBuilder::new(app, "视图")
+        .item(&PredefinedMenuItem::fullscreen(app, Some("进入全屏"))?)
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(app, "窗口")
+        .item(&PredefinedMenuItem::minimize(app, Some("最小化"))?)
+        .item(&PredefinedMenuItem::maximize(app, Some("缩放"))?)
+        .separator()
+        .item(&PredefinedMenuItem::bring_all_to_front(
+            app,
+            Some("全部置于顶层"),
+        )?)
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])
+        .build()?;
     app.set_menu(menu)?;
     Ok(())
 }
@@ -132,6 +178,11 @@ pub fn on_menu_event(app: &AppHandle, id: &str) {
         }
         "modou.new_window" => new_window(app),
         "modou.recent.clear" => clear(app),
+        "modou.close_window" => {
+            if let Some(w) = focused_window(app) {
+                let _ = w.close();
+            }
+        }
         _ => {
             if let Some(rest) = id.strip_prefix("modou.recent.") {
                 if let Ok(i) = rest.parse::<usize>() {
