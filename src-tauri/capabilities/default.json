@@ -3,12 +3,14 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "modou-*"
   ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
+    "core:event:allow-listen",
     "dialog:allow-open",
     "dialog:allow-ask"
   ]

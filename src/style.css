@@ -191,10 +191,10 @@ body {
 .tree-item {
     display: flex;
     align-items: center;
-    padding: 2px 8px;
+    padding: 1px 8px;
     cursor: pointer;
     font-size: 13px;
-    line-height: 22px;
+    line-height: 20px;
     color: #cccccc;
     user-select: none;
     white-space: nowrap;

@@ -360,6 +360,16 @@
        document.addEventListener('click', hideContextMenu);
        document.addEventListener('contextmenu', hideContextMenu);
 
+       // 系统菜单事件（打开文件夹 / 打开最近项目）
+       if (window.__TAURI__ && window.__TAURI__.event) {
+           window.__TAURI__.event.listen('menu:open-folder', function() {
+               openProject();
+           });
+           window.__TAURI__.event.listen('menu:open-project', function(e) {
+               if (e.payload) loadProject(e.payload);
+           });
+       }
+
        // 初始化终端停靠
        dock.init();
 
@@ -833,6 +843,8 @@
             updateGitStatus();
             updateStatus('项目已打开');
             saveSession();
+            // 记录到系统菜单/Dock 的「最近打开」
+            invoke('add_recent_project', { path: path }).catch(function() {});
         }).catch(function(e) {
             console.error('加载项目失败:', e);
             updateStatus('打开项目失败: ' + e);
@@ -1810,15 +1822,12 @@
         }
     }
 
-    // 全局快捷键
+    // 全局快捷键（⌘O 由系统菜单「文件 → 打开文件夹」处理）
     function onGlobalKeydown(e) {
         var isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         var cmdKey = isMac ? e.metaKey : e.ctrlKey;
 
-        if (cmdKey && e.key === 'o') {
-            e.preventDefault();
-            openProject();
-        } else if (cmdKey && e.key === 'p' && !e.shiftKey) {
+        if (cmdKey && e.key === 'p' && !e.shiftKey) {
             e.preventDefault();
             openSearch();
         } else if (cmdKey && e.key === 'P' && e.shiftKey) {

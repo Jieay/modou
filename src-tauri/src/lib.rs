@@ -2,6 +2,7 @@ mod commands;
 mod docking;
 mod dock_manager;
 mod fs;
+mod recent;
 mod settings;
 mod terminal;
 mod terminal_provider;
@@ -43,8 +44,18 @@ pub fn run() {
             get_dock_session,
             save_session,
             load_session,
+            recent::add_recent_project,
+            recent::get_recent_projects,
         ])
+        .on_menu_event(|app, event| recent::on_menu_event(app, event.id().as_ref()))
         .setup(|app| {
+            // 最近打开记录 + 系统菜单 + Dock 菜单
+            recent::init(app.handle());
+            if let Err(e) = recent::build_menu(app.handle()) {
+                eprintln!("build menu failed: {e}");
+            }
+            #[cfg(target_os = "macos")]
+            recent::dock::install();
             if cfg!(debug_assertions) {
                 if let Err(e) = app.handle().plugin(
                     tauri_plugin_log::Builder::default()
