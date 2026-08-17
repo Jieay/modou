@@ -22,7 +22,7 @@
 ## 开发环境
 
 ```bash
-git clone https://github.com/lanshankj/modou.git
+git clone https://github.com/Jieay/modou.git
 cd modou
 
 # 安装 Tauri CLI

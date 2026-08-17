@@ -2,7 +2,7 @@
 
 > 轻量代码编辑器 + 原生终端工具
 
-[![CI](https://github.com/lanshankj/modou/actions/workflows/ci.yml/badge.svg)](https://github.com/lanshankj/modou/actions/workflows/ci.yml)
+[![CI](https://github.com/Jieay/modou/actions/workflows/ci.yml/badge.svg)](https://github.com/Jieay/modou/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 墨斗是一个为资深程序员设计的 macOS 原生 IDE，采用 Tauri + Web 前端技术栈，兼顾美观与性能。
