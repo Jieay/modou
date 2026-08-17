@@ -9,6 +9,10 @@
 
 - 图片文件预览（png/jpg/gif/webp/bmp/ico/svg）：只读预览视图、棋盘格透明底衬，底部显示分辨率与文件大小（Tauri asset 协议流式读取）
 
+### Fixed
+
+- 修复图片预览 403：scope 显式关闭 requireLiteralLeadingDot（Unix 默认通配符不匹配点目录），并在打开项目时动态授权 asset 协议访问项目目录
+
 ## [0.1.7] - 2026-08-17
 
 ### Added
