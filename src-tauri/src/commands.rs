@@ -121,6 +121,20 @@ pub async fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+/// 重命名文件或文件夹（同目录下改名，拒绝覆盖已存在路径）
+#[tauri::command]
+pub async fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
+    let old_p = PathBuf::from(&old_path);
+    let new_p = PathBuf::from(&new_path);
+    if !old_p.exists() {
+        return Err("源路径不存在".to_string());
+    }
+    if new_p.exists() {
+        return Err("目标名称已存在".to_string());
+    }
+    std::fs::rename(&old_p, &new_p).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_file_tree(state: State<'_, AppState>) -> Result<Vec<FileNode>, String> {
     let tree = state.file_tree.lock().unwrap();

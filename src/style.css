@@ -148,6 +148,34 @@ body {
     padding: 4px 0;
 }
 
+/* 侧边栏拖拽手柄 */
+.sidebar-resize-handle {
+    width: 4px;
+    background: transparent;
+    cursor: ew-resize;
+    flex-shrink: 0;
+    z-index: 10;
+    transition: background 0.15s;
+}
+
+.sidebar-resize-handle:hover {
+    background: var(--accent);
+}
+
+/* 文件树内联重命名输入框 */
+.tree-rename-input {
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 1px 4px;
+    outline: none;
+    min-width: 0;
+    flex: 1;
+}
+
 .empty-state {
     padding: 20px;
     text-align: center;
@@ -481,8 +509,8 @@ body {
     white-space: nowrap;
 }
 
-/* 标签右键菜单 */
-.tab-context-menu {
+/* 通用右键菜单（标签栏 / 文件树） */
+.context-menu {
     position: fixed;
     z-index: 1000;
     background: var(--bg-input);
@@ -493,7 +521,7 @@ body {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-.tab-context-menu-item {
+.context-menu-item {
     padding: 5px 16px;
     font-size: 12px;
     color: var(--fg-primary);
@@ -501,7 +529,7 @@ body {
     white-space: nowrap;
 }
 
-.tab-context-menu-item:hover {
+.context-menu-item:hover {
     background: var(--accent);
     color: #ffffff;
 }

@@ -354,9 +354,9 @@
            }
        } catch (e) {}
 
-       // 点击其他地方时隐藏标签右键菜单
-       document.addEventListener('click', hideTabContextMenu);
-       document.addEventListener('contextmenu', hideTabContextMenu);
+       // 点击其他地方时隐藏右键菜单
+       document.addEventListener('click', hideContextMenu);
+       document.addEventListener('contextmenu', hideContextMenu);
 
        // 初始化终端停靠
        dock.init();
@@ -422,6 +422,29 @@
                     saveMaxTabs();
                     updateStatus('最大标签页数量: ' + state.maxTabs);
                 }
+            });
+        }
+
+        // 侧边栏宽度拖拽（树形区与编辑区之间）
+        var sidebar = document.getElementById('sidebar');
+        var sidebarHandle = document.getElementById('sidebar-resize-handle');
+        if (sidebar && sidebarHandle) {
+            var sidebarDragging = false;
+            var sidebarStartX = 0;
+            var sidebarStartWidth = 0;
+            sidebarHandle.addEventListener('mousedown', function(e) {
+                sidebarDragging = true;
+                sidebarStartX = e.clientX;
+                sidebarStartWidth = sidebar.offsetWidth;
+                e.preventDefault();
+            });
+            document.addEventListener('mousemove', function(e) {
+                if (!sidebarDragging) return;
+                var w = sidebarStartWidth + (e.clientX - sidebarStartX);
+                sidebar.style.width = Math.max(160, Math.min(600, w)) + 'px';
+            });
+            document.addEventListener('mouseup', function() {
+                sidebarDragging = false;
             });
         }
 
@@ -820,6 +843,12 @@
                 container.appendChild(item);
                 container.appendChild(childrenContainer);
 
+                item.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showTreeContextMenu(e.clientX, e.clientY, item, node, name);
+                });
+
                 // 已有子节点数据则直接渲染（懒加载前为空）
                 if (node.children && node.children.length > 0) {
                     renderFileTree(node.children, childrenContainer, depth + 1);
@@ -856,9 +885,96 @@
                 item.addEventListener('click', function() {
                     openFile(node.path);
                 });
+                item.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showTreeContextMenu(e.clientX, e.clientY, item, node, name);
+                });
                 container.appendChild(item);
             }
         });
+    }
+
+    // 文件树右键菜单
+    function showTreeContextMenu(x, y, item, node, nameSpan) {
+        showContextMenu(x, y, [
+            { label: '重命名', action: function() { startRename(item, node, nameSpan); } },
+        ]);
+    }
+
+    // 内联重命名文件/文件夹
+    function startRename(item, node, nameSpan) {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'tree-rename-input';
+        input.value = node.name;
+        item.replaceChild(input, nameSpan);
+        input.focus();
+        // 文件默认选中主名（不含扩展名）
+        var dotIndex = node.is_dir ? -1 : node.name.lastIndexOf('.');
+        input.setSelectionRange(0, dotIndex > 0 ? dotIndex : node.name.length);
+
+        var finished = false;
+
+        function restore(newName) {
+            if (newName) nameSpan.textContent = newName;
+            if (input.parentNode === item) item.replaceChild(nameSpan, input);
+        }
+
+        function commit() {
+            if (finished) return;
+            finished = true;
+            var newName = input.value.trim();
+            if (!newName || newName === node.name || newName.indexOf('/') >= 0) {
+                restore();
+                return;
+            }
+            var parentDir = node.path.substring(0, node.path.length - node.name.length);
+            var newPath = parentDir + newName;
+            invoke('rename_path', { oldPath: node.path, newPath: newPath }).then(function() {
+                afterRename(node, newPath, newName);
+                restore(newName);
+                updateStatus('已重命名为 ' + newName);
+            }).catch(function(e) {
+                restore();
+                updateStatus('重命名失败: ' + e);
+            });
+        }
+
+        input.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+            if (e.key === 'Enter') commit();
+            else if (e.key === 'Escape') {
+                finished = true;
+                restore();
+            }
+        });
+        input.addEventListener('blur', commit);
+    }
+
+    // 重命名成功后同步内存中的路径（树节点 + 打开的标签）
+    function afterRename(node, newPath, newName) {
+        var oldPath = node.path;
+        node.name = newName;
+        node.path = newPath;
+        // 目录重命名需递归更新已加载子节点的路径
+        (function rewrite(n) {
+            (n.children || []).forEach(function(c) {
+                c.path = newPath + c.path.substring(oldPath.length);
+                rewrite(c);
+            });
+        })(node);
+        // 同步打开的标签，避免保存时写回旧路径
+        state.openTabs.forEach(function(t) {
+            if (t.path === oldPath) {
+                t.path = newPath;
+                t.name = newName;
+            } else if (t.path.indexOf(oldPath + '/') === 0) {
+                t.path = newPath + t.path.substring(oldPath.length);
+            }
+        });
+        renderTabs();
+        saveSession();
     }
 
     // 获取文件图标
@@ -917,8 +1033,24 @@
     // 获取语言 ID（仅映射已内置的 Monaco 语言模块）
     function getLanguageId(filename) {
         var name = filename.split('/').pop().toLowerCase();
-        // 无扩展名的特殊文件名
-        if (name === 'dockerfile') return 'dockerfile';
+
+        // 精确文件名匹配（无扩展名或特殊命名的文件）
+        var byName = {
+            'dockerfile': 'dockerfile',
+            // Makefile 语法接近 shell（无专用模块，用 shell 近似高亮）
+            'makefile': 'shell', 'gnumakefile': 'shell',
+            // ignore 类文件主要是 # 注释，用 shell 高亮
+            '.gitignore': 'shell', '.dockerignore': 'shell',
+            '.npmignore': 'shell', '.gitattributes': 'shell',
+            // .env 是 KEY=VALUE 格式，用 ini 高亮
+            '.env': 'ini',
+            // TOML 格式的 lock 文件（无 toml 模块，用 ini 近似高亮）
+            'uv.lock': 'ini', 'cargo.lock': 'ini',
+            'poetry.lock': 'ini', 'pipfile.lock': 'ini',
+        };
+        if (byName[name]) return byName[name];
+        // .env.local / .env.production 等变体
+        if (name.indexOf('.env') === 0) return 'ini';
 
         var ext = name.split('.').pop();
         var map = {
@@ -942,7 +1074,8 @@
             'sql': 'sql', 'mysql': 'mysql', 'pgsql': 'pgsql',
             'sh': 'shell', 'bash': 'shell', 'zsh': 'shell',
             'ps1': 'powershell', 'bat': 'bat', 'cmd': 'bat',
-            'ini': 'ini', 'cfg': 'ini',
+            'ini': 'ini', 'cfg': 'ini', 'toml': 'ini',
+            'mk': 'shell',
             'dockerfile': 'dockerfile',
             'graphql': 'graphql', 'gql': 'graphql',
             'proto': 'protobuf', 'sol': 'solidity',
@@ -1042,43 +1175,47 @@
         saveSession();
     }
 
-    // 标签右键菜单
-    var tabContextMenu = null;
+    // 通用右键菜单（标签栏 / 文件树共用）
+    var contextMenu = null;
 
-    function hideTabContextMenu() {
-        if (tabContextMenu) {
-            tabContextMenu.remove();
-            tabContextMenu = null;
+    function hideContextMenu() {
+        if (contextMenu) {
+            contextMenu.remove();
+            contextMenu = null;
         }
     }
 
-    function showTabContextMenu(x, y, index) {
-        hideTabContextMenu();
-        tabContextMenu = document.createElement('div');
-        tabContextMenu.className = 'tab-context-menu';
+    function showContextMenu(x, y, items) {
+        hideContextMenu();
+        contextMenu = document.createElement('div');
+        contextMenu.className = 'context-menu';
 
-        var items = [
-            { label: '关闭', action: function() { closeTab(index); } },
-            { label: '关闭其他标签', action: function() { closeOtherTabs(index); } },
-            { label: '关闭所有标签', action: closeAllTabs },
-        ];
         items.forEach(function(it) {
             var item = document.createElement('div');
-            item.className = 'tab-context-menu-item';
+            item.className = 'context-menu-item';
             item.textContent = it.label;
             item.addEventListener('click', function() {
                 it.action();
-                hideTabContextMenu();
+                hideContextMenu();
             });
-            tabContextMenu.appendChild(item);
+            contextMenu.appendChild(item);
         });
 
-        document.body.appendChild(tabContextMenu);
+        document.body.appendChild(contextMenu);
 
         // 防止菜单超出窗口边界
-        var rect = tabContextMenu.getBoundingClientRect();
-        tabContextMenu.style.left = Math.min(x, window.innerWidth - rect.width - 4) + 'px';
-        tabContextMenu.style.top = Math.min(y, window.innerHeight - rect.height - 4) + 'px';
+        var rect = contextMenu.getBoundingClientRect();
+        contextMenu.style.left = Math.min(x, window.innerWidth - rect.width - 4) + 'px';
+        contextMenu.style.top = Math.min(y, window.innerHeight - rect.height - 4) + 'px';
+    }
+
+    // 标签右键菜单
+    function showTabContextMenu(x, y, index) {
+        showContextMenu(x, y, [
+            { label: '关闭', action: function() { closeTab(index); } },
+            { label: '关闭其他标签', action: function() { closeOtherTabs(index); } },
+            { label: '关闭所有标签', action: closeAllTabs },
+        ]);
     }
 
     // 渲染编辑器

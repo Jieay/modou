@@ -20,6 +20,7 @@ pub fn run() {
             list_dir,
             read_file,
             save_file,
+            rename_path,
             get_file_tree,
             create_terminal,
             close_terminal,
