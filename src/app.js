@@ -1465,6 +1465,9 @@
         if (item) {
             item.classList.add('selected');
             item.scrollIntoView({ block: 'nearest' });
+        } else {
+            // 目标在折叠的目录中：展开祖先目录后定位（与双击标签定位一致）
+            revealInTree(tab.path);
         }
     }
 
