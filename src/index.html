@@ -45,7 +45,7 @@
 
             <!-- 侧边栏 -->
             <div class="sidebar" id="sidebar">
-                <div class="sidebar-header">
+                <div class="sidebar-header" data-tauri-drag-region>
                     <span id="sidebar-title">资源管理器</span>
                     <div class="sidebar-actions">
                         <button class="btn-icon" id="btn-new-file" title="新建文件" style="display:none;">
@@ -85,7 +85,7 @@
            <div class="editor-area">
                 <div class="editor-column">
                <!-- 标签栏 -->
-               <div class="tab-bar" id="tab-bar"></div>
+               <div class="tab-bar" id="tab-bar" data-tauri-drag-region></div>
 
                <!-- 编辑器内容 -->
                 <div class="editor-content" id="editor-content">
@@ -128,8 +128,8 @@
 
                 <!-- 终端面板（内置终端，与编辑器同一窗口） -->
                 <div class="terminal-dock" id="terminal-dock">
-                    <div class="dock-header" id="dock-header">
-                        <div class="dock-header-left">
+                    <div class="dock-header" id="dock-header" data-tauri-drag-region>
+                        <div class="dock-header-left" data-tauri-drag-region>
                             <span class="dock-title" id="dock-title">终端</span>
                             <div class="dock-tabs" id="dock-terminal-tabs"></div>
                         </div>
