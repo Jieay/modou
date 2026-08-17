@@ -550,8 +550,8 @@
             btnCollapse.addEventListener('click', function() {
                 document.querySelectorAll('#file-tree .tree-item.expanded').forEach(function(el) {
                     el.classList.remove('expanded');
-                    var chevron = el.querySelector('.chevron');
-                    if (chevron) chevron.textContent = '▸';
+                    var icon = el.querySelector('.icon.fi-folder');
+                    if (icon) icon.innerHTML = SVG_FOLDER;
                 });
                 document.querySelectorAll('#file-tree .tree-children.expanded').forEach(function(el) {
                     el.classList.remove('expanded');
@@ -742,6 +742,27 @@
                     colors: {
                         'editor.background': '#1E1E1E',
                         'editor.foreground': '#D4D4D4',
+                    }
+                });
+
+                // 注册 YAML 语言（定制打包的 Monaco 未包含 yaml 模块，手动注册 Monarch 高亮）
+                monaco.languages.register({ id: 'yaml', extensions: ['.yaml', '.yml'] });
+                monaco.languages.setMonarchTokensProvider('yaml', {
+                    defaultToken: '',
+                    tokenizer: {
+                        root: [
+                            [/#.*$/, 'comment'],
+                            [/^\s*-\s+/, 'delimiter'],
+                            [/^(\s*)([A-Za-z0-9_\-.]+)(\s*:)/, ['white', 'type', 'delimiter']],
+                            [/"([^"\\]|\\.)*"/, 'string'],
+                            [/'[^']*'/, 'string'],
+                            [/\b(true|false|null|~|yes|no|on|off)\b/i, 'keyword'],
+                            [/&[A-Za-z0-9_-]+/, 'variable'],
+                            [/\*[A-Za-z0-9_-]+/, 'variable'],
+                            [/!\w+/, 'type'],
+                            [/-?\d+(\.\d+)?([eE][+-]?\d+)?/, 'number'],
+                            [/[\[\]\{\},]/, 'delimiter'],
+                        ]
                     }
                 });
 
@@ -952,7 +973,6 @@
             if (node.is_dir) {
                 var chevron = document.createElement('span');
                 chevron.className = 'chevron';
-                chevron.textContent = '▸';
                 item.appendChild(chevron);
 
                 var icon = document.createElement('span');
@@ -1457,6 +1477,7 @@
             'sh': 'shell', 'bash': 'shell', 'zsh': 'shell',
             'ps1': 'powershell', 'bat': 'bat', 'cmd': 'bat',
             'ini': 'ini', 'cfg': 'ini', 'toml': 'ini',
+            'yaml': 'yaml', 'yml': 'yaml',
             'mk': 'shell',
             'dockerfile': 'dockerfile',
             'graphql': 'graphql', 'gql': 'graphql',

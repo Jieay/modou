@@ -300,13 +300,20 @@ body {
 
 .tree-item .chevron {
     width: 16px;
-    font-size: 9px;
-    color: var(--fg-secondary);
     transition: transform 0.15s;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+}
+
+/* CSS 绘制三角（不依赖字体字形）：收起朝右，展开经 rotate(90deg) 朝下 */
+.tree-item .chevron::before {
+    content: "";
+    display: block;
+    border-left: 5px solid var(--fg-secondary);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
 }
 
 .tree-item.expanded .chevron {
