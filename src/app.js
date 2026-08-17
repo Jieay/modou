@@ -41,6 +41,8 @@
        xtermLoaded: false,
        legacyTerminalEnabled: false,
        restoring: false,
+       maxTabs: 20,
+       awaitingMaxTabs: false,
    };
 
    // DOM 元素缓存
@@ -343,6 +345,18 @@
 
        // 绑定基础事件（必须在任何情况下都执行）
        bindBasicEvents();
+
+       // 读取最大标签页数量设置
+       try {
+           var savedMaxTabs = parseInt(localStorage.getItem('modou.maxTabs'), 10);
+           if (!isNaN(savedMaxTabs) && savedMaxTabs >= 1) {
+               state.maxTabs = Math.min(savedMaxTabs, 50);
+           }
+       } catch (e) {}
+
+       // 点击其他地方时隐藏标签右键菜单
+       document.addEventListener('click', hideTabContextMenu);
+       document.addEventListener('contextmenu', hideTabContextMenu);
 
        // 初始化终端停靠
        dock.init();
@@ -861,6 +875,12 @@
                 isDirty: false,
             };
 
+            // 超出最大标签数时，自动关闭最旧的未修改标签
+            if (state.openTabs.length >= state.maxTabs) {
+                var evictIndex = state.openTabs.findIndex(function(t) { return !t.isDirty; });
+                if (evictIndex >= 0) closeTab(evictIndex);
+            }
+
             state.openTabs.push(tab);
             state.activeTabIndex = state.openTabs.length - 1;
 
@@ -874,17 +894,39 @@
         });
     }
 
-    // 获取语言 ID
+    // 获取语言 ID（仅映射已内置的 Monaco 语言模块）
     function getLanguageId(filename) {
-        var ext = filename.split('.').pop().toLowerCase();
+        var name = filename.split('/').pop().toLowerCase();
+        // 无扩展名的特殊文件名
+        if (name === 'dockerfile') return 'dockerfile';
+
+        var ext = name.split('.').pop();
         var map = {
-            'rs': 'rust', 'go': 'go', 'py': 'python',
+            'rs': 'rust', 'go': 'go',
+            'py': 'python', 'pyi': 'python',
             'ts': 'typescript', 'tsx': 'typescript',
-            'js': 'javascript', 'jsx': 'javascript',
+            'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript', 'cjs': 'javascript',
             'md': 'markdown', 'json': 'json',
-            'toml': 'toml', 'yaml': 'yaml', 'yml': 'yaml',
-            'html': 'html', 'css': 'css',
-            'c': 'c', 'cpp': 'cpp', 'h': 'c', 'hpp': 'cpp',
+            'html': 'html', 'htm': 'html',
+            'css': 'css', 'scss': 'scss', 'less': 'less',
+            'xml': 'xml', 'svg': 'xml',
+            'c': 'c', 'h': 'c',
+            'cpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp', 'hpp': 'cpp',
+            'm': 'objective-c', 'mm': 'objective-c',
+            'cs': 'csharp', 'fs': 'fsharp', 'vb': 'vb',
+            'java': 'java', 'kt': 'kotlin', 'kts': 'kotlin',
+            'scala': 'scala', 'clj': 'clojure',
+            'swift': 'swift', 'rb': 'ruby', 'php': 'php',
+            'lua': 'lua', 'pl': 'perl', 'r': 'r', 'jl': 'julia',
+            'dart': 'dart', 'ex': 'elixir', 'exs': 'elixir',
+            'sql': 'sql', 'mysql': 'mysql', 'pgsql': 'pgsql',
+            'sh': 'shell', 'bash': 'shell', 'zsh': 'shell',
+            'ps1': 'powershell', 'bat': 'bat', 'cmd': 'bat',
+            'ini': 'ini', 'cfg': 'ini',
+            'dockerfile': 'dockerfile',
+            'graphql': 'graphql', 'gql': 'graphql',
+            'proto': 'protobuf', 'sol': 'solidity',
+            'tf': 'hcl', 'hcl': 'hcl',
         };
         return map[ext] || 'plaintext';
     }
@@ -906,6 +948,7 @@
             }
 
             var name = document.createElement('span');
+            name.className = 'tab-name';
             name.textContent = tab.name;
             tabEl.appendChild(name);
 
@@ -920,6 +963,11 @@
 
             tabEl.addEventListener('click', function() {
                 switchTab(index);
+            });
+            tabEl.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                showTabContextMenu(e.clientX, e.clientY, index);
             });
             elements['tab-bar'].appendChild(tabEl);
         });
@@ -951,6 +999,66 @@
         }
         renderTabs();
         saveSession();
+    }
+
+    // 关闭除指定标签外的所有标签
+    function closeOtherTabs(index) {
+        var keep = state.openTabs[index];
+        if (!keep) return;
+        state.openTabs = [keep];
+        state.activeTabIndex = 0;
+        renderTabs();
+        renderEditor();
+        saveSession();
+    }
+
+    // 关闭所有标签
+    function closeAllTabs() {
+        state.openTabs = [];
+        state.activeTabIndex = -1;
+        if (elements['monaco-editor']) elements['monaco-editor'].style.display = 'none';
+        if (elements['welcome-screen']) elements['welcome-screen'].style.display = 'flex';
+        renderTabs();
+        saveSession();
+    }
+
+    // 标签右键菜单
+    var tabContextMenu = null;
+
+    function hideTabContextMenu() {
+        if (tabContextMenu) {
+            tabContextMenu.remove();
+            tabContextMenu = null;
+        }
+    }
+
+    function showTabContextMenu(x, y, index) {
+        hideTabContextMenu();
+        tabContextMenu = document.createElement('div');
+        tabContextMenu.className = 'tab-context-menu';
+
+        var items = [
+            { label: '关闭', action: function() { closeTab(index); } },
+            { label: '关闭其他标签', action: function() { closeOtherTabs(index); } },
+            { label: '关闭所有标签', action: closeAllTabs },
+        ];
+        items.forEach(function(it) {
+            var item = document.createElement('div');
+            item.className = 'tab-context-menu-item';
+            item.textContent = it.label;
+            item.addEventListener('click', function() {
+                it.action();
+                hideTabContextMenu();
+            });
+            tabContextMenu.appendChild(item);
+        });
+
+        document.body.appendChild(tabContextMenu);
+
+        // 防止菜单超出窗口边界
+        var rect = tabContextMenu.getBoundingClientRect();
+        tabContextMenu.style.left = Math.min(x, window.innerWidth - rect.width - 4) + 'px';
+        tabContextMenu.style.top = Math.min(y, window.innerHeight - rect.height - 4) + 'px';
     }
 
     // 渲染编辑器
@@ -1128,7 +1236,36 @@
        { name: '文件: 保存文件', action: saveCurrentFile },
         { name: '终端: 新建终端', action: function() { dock.start(); } },
         { name: '转到: 转到文件', action: openSearch },
+        { name: '标签: 关闭所有标签', action: closeAllTabs },
+        { name: '设置: 最大标签页数量', action: beginMaxTabsInput },
     ];
+
+    // 进入"最大标签页数量"输入模式（复用命令面板输入框）
+    function beginMaxTabsInput() {
+        state.awaitingMaxTabs = true;
+        if (elements['command-overlay']) {
+            elements['command-overlay'].style.display = 'flex';
+            elements['command-input'].value = String(state.maxTabs);
+            elements['command-input'].placeholder = '输入最大标签页数量（1-50），回车确认';
+            elements['command-input'].focus();
+            elements['command-input'].select();
+        }
+        state.commandResults = [];
+        renderCommandResults();
+    }
+
+    function endMaxTabsInput() {
+        state.awaitingMaxTabs = false;
+        if (elements['command-input']) {
+            elements['command-input'].placeholder = '输入命令...';
+        }
+    }
+
+    function saveMaxTabs() {
+        try {
+            localStorage.setItem('modou.maxTabs', String(state.maxTabs));
+        } catch (e) {}
+    }
 
     function openCommandPalette() {
         if (elements['command-overlay']) {
@@ -1142,12 +1279,19 @@
     }
 
     function closeCommandPalette() {
+        // "最大标签页数量"输入模式下保持面板打开
+        if (state.awaitingMaxTabs) return;
         if (elements['command-overlay']) {
             elements['command-overlay'].style.display = 'none';
         }
     }
 
     function onCommandInput() {
+        if (state.awaitingMaxTabs) {
+            state.commandResults = [];
+            renderCommandResults();
+            return;
+        }
         var query = elements['command-input'].value.toLowerCase();
         state.commandResults = commands.filter(function(c) {
             return c.name.toLowerCase().includes(query);
@@ -1173,7 +1317,10 @@
     }
 
     function onCommandKeydown(e) {
-        if (e.key === 'Escape') closeCommandPalette();
+        if (e.key === 'Escape') {
+            endMaxTabsInput();
+            closeCommandPalette();
+        }
         else if (e.key === 'ArrowDown') {
             e.preventDefault();
             state.selectedCommandIndex = Math.min(state.selectedCommandIndex + 1, state.commandResults.length - 1);
@@ -1183,6 +1330,20 @@
             state.selectedCommandIndex = Math.max(state.selectedCommandIndex - 1, 0);
             renderCommandResults();
         } else if (e.key === 'Enter') {
+            // "最大标签页数量"输入模式
+            if (state.awaitingMaxTabs) {
+                var n = parseInt(elements['command-input'].value, 10);
+                if (!isNaN(n) && n >= 1) {
+                    state.maxTabs = Math.min(n, 50);
+                    saveMaxTabs();
+                    updateStatus('最大标签页数量: ' + state.maxTabs);
+                } else {
+                    updateStatus('无效的数字，设置未修改');
+                }
+                endMaxTabsInput();
+                closeCommandPalette();
+                return;
+            }
             var cmd = state.commandResults[state.selectedCommandIndex];
             if (cmd) {
                 cmd.action();

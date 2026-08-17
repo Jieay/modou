@@ -444,7 +444,6 @@ body {
     font-size: 13px;
     color: var(--fg-secondary);
     cursor: pointer;
-    min-width: 120px;
     max-width: 200px;
     position: relative;
     flex-shrink: 0;
@@ -474,6 +473,37 @@ body {
 .tab .dirty-dot {
     color: #c5c5c5;
     margin-right: 4px;
+}
+
+.tab .tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 标签右键菜单 */
+.tab-context-menu {
+    position: fixed;
+    z-index: 1000;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 0;
+    min-width: 150px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.tab-context-menu-item {
+    padding: 5px 16px;
+    font-size: 12px;
+    color: var(--fg-primary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tab-context-menu-item:hover {
+    background: var(--accent);
+    color: #ffffff;
 }
 
 .tab .close-btn {
