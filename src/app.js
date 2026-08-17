@@ -443,6 +443,26 @@
         var btnNewFolder = document.getElementById('btn-new-folder');
         if (btnNewFolder) btnNewFolder.addEventListener('click', function() { startCreateAtRoot(true); });
 
+        // 文件树空白处右键：在项目根目录新建/刷新
+        var fileTreeEl = elements['file-tree'];
+        if (fileTreeEl) {
+            fileTreeEl.addEventListener('contextmenu', function(e) {
+                // 节点自身的右键菜单已单独处理（stopPropagation 后不会走到这里）
+                if (e.target.closest('.tree-item')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (!state.projectRoot) return;
+                showContextMenu(e.clientX, e.clientY, [
+                    { label: '新建文件', action: function() { startCreateAtRoot(false); } },
+                    { label: '新建文件夹', action: function() { startCreateAtRoot(true); } },
+                    { separator: true },
+                    { label: '刷新', action: function() {
+                        refreshTreeDir(state.projectRoot, fileTreeEl, 0);
+                    } },
+                ]);
+            });
+        }
+
         // 侧边栏宽度拖拽（树形区与编辑区之间）
         var sidebar = document.getElementById('sidebar');
         var sidebarHandle = document.getElementById('sidebar-resize-handle');
@@ -1779,10 +1799,10 @@
             openCommandPalette();
        } else if (cmdKey && e.key === '`') {
            e.preventDefault();
-            dock.start();
-        } else if (cmdKey && e.key === 'j') {
-            e.preventDefault();
             dock.toggle();
+        } else if (cmdKey && e.key === 't') {
+            e.preventDefault();
+            dock.start();
         } else if (cmdKey && e.key === 'w') {
             e.preventDefault();
             if (state.activeTabIndex >= 0) closeTab(state.activeTabIndex);
