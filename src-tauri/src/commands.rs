@@ -490,6 +490,8 @@ pub struct SessionState {
     pub project_root: Option<String>,
     pub open_files: Vec<String>,
     pub active_file: Option<String>,
+    /// 文件树中处于展开状态的目录路径
+    pub expanded_dirs: Vec<String>,
 }
 
 fn session_path(app: &tauri::AppHandle) -> PathBuf {

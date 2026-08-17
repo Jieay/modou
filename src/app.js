@@ -60,6 +60,7 @@
        maxTabs: 20,
        awaitingMaxTabs: false,
        fileClipboard: null,
+       expandedDirs: new Set(),
    };
 
    // DOM 元素缓存
@@ -312,7 +313,8 @@
            projectRoot: state.projectRoot,
            openFiles: state.openTabs.map(function(t) { return t.path; }),
            activeFile: (state.activeTabIndex >= 0 && state.openTabs[state.activeTabIndex])
-               ? state.openTabs[state.activeTabIndex].path : null
+               ? state.openTabs[state.activeTabIndex].path : null,
+           expandedDirs: Array.from(state.expandedDirs)
        };
        invoke('save_session', { session: session }).catch(function() {});
    }
@@ -323,6 +325,7 @@
        invoke('load_session').then(function(session) {
            if (!session || !session.projectRoot) return;
            state.restoring = true;
+           state.expandedDirs = new Set(session.expandedDirs || []);
 
            invoke('open_project', { path: session.projectRoot }).then(function(nodes) {
                state.projectRoot = session.projectRoot;
@@ -556,6 +559,8 @@
                 document.querySelectorAll('#file-tree .tree-children.expanded').forEach(function(el) {
                     el.classList.remove('expanded');
                 });
+                state.expandedDirs.clear();
+                saveSession();
             });
         }
 
@@ -968,6 +973,7 @@
         nodes.forEach(function(node) {
             var item = document.createElement('div');
             item.className = 'tree-item';
+            item.dataset.path = node.path;
             item.style.paddingLeft = (8 + depth * 12) + 'px';
 
             if (node.is_dir) {
@@ -1002,6 +1008,7 @@
                             item.classList.add('expanded');
                             childrenContainer.classList.add('expanded');
                             icon.innerHTML = SVG_FOLDER_OPEN;
+                            state.expandedDirs.add(node.path);
                         },
                         refreshChildren: function() {
                             refreshTreeNode(node, childrenContainer, depth);
@@ -1017,11 +1024,35 @@
                     renderFileTree(node.children, childrenContainer, depth + 1);
                 }
 
+                // 恢复展开状态（刷新/重开保持用户展开的目录结构）
+                if (state.expandedDirs.has(node.path)) {
+                    item.classList.add('expanded');
+                    childrenContainer.classList.add('expanded');
+                    icon.innerHTML = SVG_FOLDER_OPEN;
+                    if (!node.loaded) {
+                        node.loaded = true;
+                        invoke('list_dir', { path: node.path }).then(function(children) {
+                            node.children = children || [];
+                            renderFileTree(node.children, childrenContainer, depth + 1);
+                        }).catch(function(e) {
+                            console.error('加载目录失败:', e);
+                        });
+                    }
+                }
+
                 item.addEventListener('click', function() {
                     var isExpanded = item.classList.contains('expanded');
                     item.classList.toggle('expanded');
                     childrenContainer.classList.toggle('expanded');
                     icon.innerHTML = isExpanded ? SVG_FOLDER : SVG_FOLDER_OPEN;
+
+                    // 同步展开状态集合并持久化
+                    if (isExpanded) {
+                        state.expandedDirs.delete(node.path);
+                    } else {
+                        state.expandedDirs.add(node.path);
+                    }
+                    saveSession();
 
                     // 首次展开时懒加载子目录
                     if (!isExpanded && !node.loaded) {
@@ -1226,6 +1257,7 @@
 
     // 移动路径后同步打开的标签，避免保存写回旧路径
     function syncTabsAfterMove(oldPath, newPath) {
+        rewriteExpandedDirs(oldPath, newPath);
         var newName = newPath.split('/').pop();
         state.openTabs.forEach(function(t) {
             if (t.path === oldPath) {
@@ -1329,7 +1361,7 @@
         input.addEventListener('blur', commit);
     }
 
-    // 重命名成功后同步内存中的路径（树节点 + 打开的标签）
+    // 重命名成功后同步内存中的路径（树节点 + 打开的标签 + 展开集合）
     function afterRename(node, newPath, newName) {
         var oldPath = node.path;
         node.name = newName;
@@ -1341,6 +1373,7 @@
                 rewrite(c);
             });
         })(node);
+        rewriteExpandedDirs(oldPath, newPath);
         // 同步打开的标签，避免保存时写回旧路径
         state.openTabs.forEach(function(t) {
             if (t.path === oldPath) {
@@ -1352,6 +1385,57 @@
         });
         renderTabs();
         saveSession();
+    }
+
+    // 目录路径变化后同步展开状态集合
+    function rewriteExpandedDirs(oldPath, newPath) {
+        var updated = new Set();
+        state.expandedDirs.forEach(function(p) {
+            if (p === oldPath) updated.add(newPath);
+            else if (p.indexOf(oldPath + '/') === 0) updated.add(newPath + p.substring(oldPath.length));
+            else updated.add(p);
+        });
+        state.expandedDirs = updated;
+    }
+
+    // 在文件树中定位文件：展开所有祖先目录并高亮对应节点
+    function revealInTree(path) {
+        if (!state.projectRoot || path.indexOf(state.projectRoot + '/') !== 0) return;
+
+        // 祖先目录全部加入展开集合
+        var dir = path.substring(0, path.lastIndexOf('/'));
+        while (dir.length > state.projectRoot.length) {
+            state.expandedDirs.add(dir);
+            dir = dir.substring(0, dir.lastIndexOf('/'));
+        }
+        saveSession();
+
+        // 重新渲染树（renderFileTree 会按展开集合自动展开并逐层懒加载）
+        renderFileTree(state.fileTree);
+
+        // 懒加载是异步的，轮询等待目标节点出现后高亮
+        highlightTreeItemWhenReady(path, 25);
+    }
+
+    function highlightTreeItemWhenReady(path, attempts) {
+        var item = findTreeItem(path);
+        if (item) {
+            document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
+                el.classList.remove('selected');
+            });
+            item.classList.add('selected');
+            item.scrollIntoView({ block: 'center' });
+        } else if (attempts > 0) {
+            setTimeout(function() { highlightTreeItemWhenReady(path, attempts - 1); }, 120);
+        }
+    }
+
+    function findTreeItem(path) {
+        var items = document.querySelectorAll('#file-tree .tree-item');
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].dataset.path === path) return items[i];
+        }
+        return null;
     }
 
     // SVG 图标（16x16，参考 VS Code 文件图标风格）
@@ -1519,6 +1603,10 @@
 
             tabEl.addEventListener('click', function() {
                 switchTab(index);
+            });
+            // 双击标签：在文件树中定位并选中对应文件
+            tabEl.addEventListener('dblclick', function() {
+                revealInTree(tab.path);
             });
             tabEl.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
