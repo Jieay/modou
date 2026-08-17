@@ -568,7 +568,8 @@
     // 切换侧边栏面板（资源管理器 / 搜索 / Git / 调试 / 设置）
     function switchSidebarPanel(panel) {
         var titles = {
-            explorer: '资源管理器',
+            // 打开项目后资源管理器标题显示文件夹名（与 VS Code 单目录工作区一致）
+            explorer: state.projectRoot ? state.projectRoot.split('/').pop() : '资源管理器',
             search: '搜索',
             git: '源代码管理',
             debug: '运行和调试',
@@ -842,6 +843,9 @@
             renderFileTree(state.fileTree);
             updateGitStatus();
             updateStatus('项目已打开');
+            // 资源管理器标题显示项目文件夹名
+            var titleEl = document.getElementById('sidebar-title');
+            if (titleEl) titleEl.textContent = path.split('/').pop();
             saveSession();
             // 记录到系统菜单/Dock 的「最近打开」
             invoke('add_recent_project', { path: path }).catch(function() {});
