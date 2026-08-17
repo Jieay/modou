@@ -868,8 +868,8 @@
                 item.appendChild(chevron);
 
                 var icon = document.createElement('span');
-                icon.className = 'icon';
-                icon.textContent = '📁';
+                icon.className = 'icon fi-folder';
+                icon.innerHTML = SVG_FOLDER;
                 item.appendChild(icon);
 
                 var name = document.createElement('span');
@@ -878,6 +878,8 @@
 
                 var childrenContainer = document.createElement('div');
                 childrenContainer.className = 'tree-children';
+                // 归属虚线对齐到父节点 chevron 中心
+                childrenContainer.style.backgroundPosition = (8 + depth * 12 + 7) + 'px 0';
                 container.appendChild(item);
                 container.appendChild(childrenContainer);
 
@@ -891,7 +893,7 @@
                         expand: function() {
                             item.classList.add('expanded');
                             childrenContainer.classList.add('expanded');
-                            chevron.textContent = '▾';
+                            icon.innerHTML = SVG_FOLDER_OPEN;
                         },
                         refreshChildren: function() {
                             refreshTreeNode(node, childrenContainer, depth);
@@ -911,7 +913,7 @@
                     var isExpanded = item.classList.contains('expanded');
                     item.classList.toggle('expanded');
                     childrenContainer.classList.toggle('expanded');
-                    chevron.textContent = isExpanded ? '▸' : '▾';
+                    icon.innerHTML = isExpanded ? SVG_FOLDER : SVG_FOLDER_OPEN;
 
                     // 首次展开时懒加载子目录
                     if (!isExpanded && !node.loaded) {
@@ -927,8 +929,8 @@
                 });
             } else {
                 var icon = document.createElement('span');
-                icon.className = 'icon';
-                icon.textContent = getFileIcon(node.name);
+                icon.className = 'icon ' + getFileIconClass(node.name);
+                icon.innerHTML = SVG_FILE;
                 item.appendChild(icon);
 
                 var name = document.createElement('span');
@@ -1028,8 +1030,8 @@
         item.style.paddingLeft = (8 + depth * 12) + 'px';
 
         var icon = document.createElement('span');
-        icon.className = 'icon';
-        icon.textContent = isDir ? '📁' : '📄';
+        icon.className = 'icon ' + (isDir ? 'fi-folder' : 'fi-default');
+        icon.innerHTML = isDir ? SVG_FOLDER : SVG_FILE;
         item.appendChild(icon);
 
         var input = document.createElement('input');
@@ -1244,18 +1246,43 @@
         saveSession();
     }
 
-    // 获取文件图标
-    function getFileIcon(name) {
-        var ext = name.split('.').pop().toLowerCase();
-        var icons = {
-            'rs': '🦀', 'go': '🐹', 'py': '🐍',
-            'ts': '📘', 'tsx': '📘', 'js': '📒', 'jsx': '📒',
-            'md': '📝', 'json': '📋', 'toml': '⚙️',
-            'yaml': '⚙️', 'yml': '⚙️',
-            'html': '🌐', 'css': '🎨',
-            'c': '⚡', 'cpp': '⚡', 'h': '⚡', 'hpp': '⚡',
+    // SVG 图标（16x16，参考 VS Code 文件图标风格）
+    var SVG_FILE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M4 1.5h5L13 5.5v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z"/><path d="M9 1.5V5.5H13"/></svg>';
+    var SVG_FOLDER = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2h2.7c.4 0 .8.16 1.07.44L8.5 3.75h4A1.5 1.5 0 0 1 14 5.25v6.25a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-8A1.5 1.5 0 0 1 3.5 2z"/></svg>';
+    var SVG_FOLDER_OPEN = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2h2.7c.4 0 .8.16 1.07.44L8.5 3.75h4A1.5 1.5 0 0 1 14 5.25V6.5H4.55c-.5 0-.95.29-1.16.75L2 10.35V3.5A1.5 1.5 0 0 1 3.5 2z"/><path d="M4.77 7.5h9.08c.38 0 .63.38.51.73l-1.31 4.1a.75.75 0 0 1-.7.51H2.9c-.38 0-.63-.38-.51-.73l1.31-4.1a.75.75 0 0 1 .7-.51z"/></svg>';
+
+    // 文件图标着色分类（配合 .fi-* 样式）
+    function getFileIconClass(name) {
+        var lower = name.toLowerCase();
+        // 特殊文件名优先
+        if (lower === 'dockerfile' || lower.indexOf('.env') === 0) return 'fi-config';
+        if (lower === 'makefile' || lower === 'gnumakefile') return 'fi-shell';
+        if (lower.indexOf('lock') >= 0 || lower === '.gitignore' || lower === '.dockerignore') return 'fi-lock';
+
+        var ext = lower.split('.').pop();
+        var map = {
+            'js': 'fi-js', 'jsx': 'fi-js', 'mjs': 'fi-js', 'cjs': 'fi-js',
+            'ts': 'fi-ts', 'tsx': 'fi-ts',
+            'py': 'fi-py', 'pyi': 'fi-py',
+            'rs': 'fi-rs', 'go': 'fi-go',
+            'java': 'fi-java', 'kt': 'fi-java', 'kts': 'fi-java',
+            'c': 'fi-c', 'h': 'fi-c', 'cpp': 'fi-c', 'hpp': 'fi-c',
+            'cc': 'fi-c', 'cxx': 'fi-c', 'cs': 'fi-c', 'm': 'fi-c', 'mm': 'fi-c',
+            'rb': 'fi-rb', 'php': 'fi-php', 'swift': 'fi-swift',
+            'html': 'fi-web', 'htm': 'fi-web', 'vue': 'fi-web', 'xml': 'fi-web', 'svg': 'fi-web',
+            'css': 'fi-css', 'scss': 'fi-css', 'less': 'fi-css',
+            'json': 'fi-json',
+            'md': 'fi-md', 'markdown': 'fi-md',
+            'sh': 'fi-shell', 'bash': 'fi-shell', 'zsh': 'fi-shell',
+            'ps1': 'fi-shell', 'bat': 'fi-shell', 'cmd': 'fi-shell', 'mk': 'fi-shell',
+            'sql': 'fi-db', 'mysql': 'fi-db', 'pgsql': 'fi-db', 'db': 'fi-db',
+            'toml': 'fi-config', 'yaml': 'fi-config', 'yml': 'fi-config',
+            'ini': 'fi-config', 'cfg': 'fi-config',
+            'png': 'fi-img', 'jpg': 'fi-img', 'jpeg': 'fi-img',
+            'gif': 'fi-img', 'ico': 'fi-img', 'webp': 'fi-img', 'icns': 'fi-img',
+            'lock': 'fi-lock',
         };
-        return icons[ext] || '📄';
+        return map[ext] || 'fi-default';
     }
 
     // 打开文件
@@ -1619,8 +1646,8 @@
             item.className = 'search-result-item' + (index === state.selectedSearchIndex ? ' selected' : '');
 
             var icon = document.createElement('span');
-            icon.className = 'file-icon';
-            icon.textContent = getFileIcon(result.name);
+            icon.className = 'file-icon ' + getFileIconClass(result.name);
+            icon.innerHTML = SVG_FILE;
             item.appendChild(icon);
 
             var name = document.createElement('span');

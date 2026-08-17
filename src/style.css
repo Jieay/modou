@@ -191,7 +191,7 @@ body {
 .tree-item {
     display: flex;
     align-items: center;
-    padding: 3px 8px;
+    padding: 2px 8px;
     cursor: pointer;
     font-size: 13px;
     line-height: 22px;
@@ -210,19 +210,29 @@ body {
 }
 
 .tree-item .icon {
-    width: 20px;
-    text-align: center;
-    margin-right: 4px;
-    font-size: 14px;
+    width: 16px;
+    margin-right: 6px;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-item .icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
 }
 
 .tree-item .chevron {
     width: 16px;
-    font-size: 10px;
+    font-size: 9px;
     color: var(--fg-secondary);
     transition: transform 0.15s;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .tree-item.expanded .chevron {
@@ -230,13 +240,45 @@ body {
 }
 
 .tree-children {
-    margin-left: 12px;
     display: none;
 }
 
 .tree-children.expanded {
     display: block;
+    /* 树形归属虚线（水平位置由 JS 按层级计算 background-position） */
+    background-image: repeating-linear-gradient(
+        to bottom,
+        rgba(133, 133, 133, 0.35) 0,
+        rgba(133, 133, 133, 0.35) 4px,
+        transparent 4px,
+        transparent 8px
+    );
+    background-size: 1px 100%;
+    background-repeat: no-repeat;
 }
+
+/* 文件图标着色（按语言分类，参考 VS Code 图标主题配色） */
+.fi-folder { color: #dcb67a; }
+.fi-js { color: #e8d44d; }
+.fi-ts { color: #3178c6; }
+.fi-py { color: #4b8bbe; }
+.fi-rs { color: #dea584; }
+.fi-go { color: #00add8; }
+.fi-java { color: #e76f00; }
+.fi-c { color: #659ad2; }
+.fi-rb { color: #cc342d; }
+.fi-php { color: #777bb3; }
+.fi-swift { color: #f05138; }
+.fi-web { color: #e34c26; }
+.fi-css { color: #2965f1; }
+.fi-json { color: #cbcb41; }
+.fi-md { color: #519aba; }
+.fi-shell { color: #89e051; }
+.fi-db { color: #e38c00; }
+.fi-config { color: #9ca3af; }
+.fi-img { color: #b180d7; }
+.fi-lock { color: #8a8a8a; }
+.fi-default { color: #c5c5c5; }
 
 /* ========== 编辑区 ========== */
 .editor-area {
@@ -785,8 +827,17 @@ body {
 }
 
 .file-icon {
-    font-size: 14px;
+    width: 16px;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
 }
 
 .file-path {
