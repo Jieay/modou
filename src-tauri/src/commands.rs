@@ -62,11 +62,17 @@ pub struct GitInfo {
 pub async fn open_project(
     path: String,
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<FileNode>, String> {
     let path = PathBuf::from(path);
     if !path.exists() {
         return Err("Path does not exist".to_string());
     }
+
+    // 允许 asset 协议访问当前项目目录（图片预览等本地资源加载）
+    app.asset_protocol_scope()
+        .allow_directory(&path, true)
+        .map_err(|e| e.to_string())?;
 
     let tree = FileTree::new(&path).map_err(|e| e.to_string())?;
     let nodes = tree.to_nodes();
