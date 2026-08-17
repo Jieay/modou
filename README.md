@@ -55,6 +55,11 @@ make icons
 
 # 安装到 /Applications
 make install
+
+# 一键发布新版本（递增版本号、构建、打 Tag、推送、创建 GitHub Release 并上传 .dmg）
+make publish
+# 发布 minor / major 版本
+make publish VERSION_PART=minor
 ```
 
 ## 项目结构

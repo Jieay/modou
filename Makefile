@@ -1,4 +1,4 @@
-.PHONY: build release bundle dmg app clean clean-releases run check test install open help icons bump-version
+.PHONY: build release bundle dmg app clean clean-releases run check test install open help icons bump-version publish
 
 # 默认目标：显示帮助信息
 all: help
@@ -54,6 +54,20 @@ install: bundle
 open: bundle
 	open src-tauri/target/release/bundle/macos/modou.app
 
+# 一键发布新版本：递增版本号 → 构建 → 提交 → 打 Tag → 推送 → 创建 GitHub Release 并上传 .dmg
+# 用法：make publish（默认 patch；可 VERSION_PART=minor / major）
+publish: release
+	@VERSION=$$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])"); \
+	git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json; \
+	git commit -m "chore: 发布 v$$VERSION" \
+		-m "Co-Authored-By: $$(git config user.name) <$$(git config user.email)>"; \
+	git tag -a "v$$VERSION" -m "Release v$$VERSION"; \
+	git push origin HEAD; \
+	git push origin "v$$VERSION"; \
+	DMG=$$(ls src-tauri/target/release/bundle/dmg/*_$$VERSION_*.dmg | head -1); \
+	gh release create "v$$VERSION" "$$DMG" --title "v$$VERSION" --generate-notes; \
+	echo "已发布 v$$VERSION 并上传 $$DMG"
+
 # 显示帮助信息
 help:
 	@echo "墨斗（Modou）构建系统"
@@ -73,4 +87,5 @@ help:
 	@echo "  make clean-releases - 清理历史打包版本（保留最新 .dmg）"
 	@echo "  make install   - 安装应用到 /Applications 目录"
 	@echo "  make open      - 打包并打开应用"
+	@echo "  make publish   - 一键发布新版本（构建、打 Tag、推送、创建 GitHub Release）"
 	@echo "  make help      - 显示此帮助信息"
