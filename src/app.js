@@ -1077,6 +1077,11 @@
                 item.appendChild(name);
 
                 item.addEventListener('click', function() {
+                    // 选中态跟随点击（清除双击标签定位等其他来源的高亮）
+                    document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
+                        el.classList.remove('selected');
+                    });
+                    item.classList.add('selected');
                     openFile(node.path);
                 });
                 item.addEventListener('contextmenu', function(e) {
