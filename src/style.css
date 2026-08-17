@@ -180,12 +180,14 @@ body {
     flex-shrink: 0;
 }
 
+/* 菜单项选中时背景为主题蓝，删除按钮需反白保证可读 */
 .context-menu-item:hover .context-menu-item-delete {
     opacity: 1;
+    color: rgba(255, 255, 255, 0.85);
 }
 
 .context-menu-item-delete:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.3);
     color: #ffffff;
 }
 
