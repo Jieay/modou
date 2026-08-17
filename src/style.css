@@ -506,6 +506,43 @@ body {
     color: #ffffff;
 }
 
+/* 设置面板 */
+.settings-group {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-label {
+    display: block;
+    font-size: 12px;
+    color: var(--fg-primary);
+    margin-bottom: 6px;
+}
+
+.settings-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+}
+
+.settings-input:focus {
+    border-color: var(--accent);
+}
+
+.settings-desc {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--fg-secondary);
+    line-height: 1.4;
+}
+
 .tab .close-btn {
     margin-left: 8px;
     width: 20px;

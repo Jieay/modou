@@ -412,6 +412,19 @@
             });
         });
 
+        // 设置面板：最大标签页数量（实时生效并持久化）
+        var maxTabsInput = document.getElementById('setting-max-tabs');
+        if (maxTabsInput) {
+            maxTabsInput.addEventListener('input', function() {
+                var n = parseInt(maxTabsInput.value, 10);
+                if (!isNaN(n) && n >= 1) {
+                    state.maxTabs = Math.min(n, 50);
+                    saveMaxTabs();
+                    updateStatus('最大标签页数量: ' + state.maxTabs);
+                }
+            });
+        }
+
         // 刷新文件树
         var btnRefresh = document.getElementById('btn-refresh');
         if (btnRefresh) {
@@ -492,8 +505,7 @@
         };
         var placeholders = {
             search: '全局搜索将在后续版本提供',
-            debug: '运行和调试将在后续版本提供',
-            settings: '设置将在后续版本提供'
+            debug: '运行和调试将在后续版本提供'
         };
 
         var titleEl = document.getElementById('sidebar-title');
@@ -502,12 +514,14 @@
         var fileTree = elements['file-tree'];
         var gitPanel = document.getElementById('sidebar-panel-git');
         var placeholderPanel = document.getElementById('sidebar-panel-placeholder');
+        var settingsPanel = document.getElementById('sidebar-panel-settings');
         var actions = document.querySelector('.sidebar-actions');
 
         // 先全部隐藏
         if (fileTree) fileTree.style.display = 'none';
         if (gitPanel) gitPanel.style.display = 'none';
         if (placeholderPanel) placeholderPanel.style.display = 'none';
+        if (settingsPanel) settingsPanel.style.display = 'none';
         if (actions) actions.style.display = 'none';
 
         if (panel === 'explorer') {
@@ -517,6 +531,12 @@
             if (gitPanel) {
                 gitPanel.style.display = 'block';
                 renderGitPanel(gitPanel);
+            }
+        } else if (panel === 'settings') {
+            if (settingsPanel) {
+                settingsPanel.style.display = 'block';
+                var maxTabsInput = document.getElementById('setting-max-tabs');
+                if (maxTabsInput) maxTabsInput.value = String(state.maxTabs);
             }
         } else {
             if (placeholderPanel) {
@@ -1375,6 +1395,14 @@
         } else if (cmdKey && e.key === 's') {
             e.preventDefault();
             saveCurrentFile();
+        } else if (cmdKey && e.key === ',') {
+            e.preventDefault();
+            document.querySelectorAll('.activity-icon').forEach(function(i) {
+                i.classList.remove('active');
+            });
+            var settingsIcon = document.querySelector('.activity-icon[data-panel="settings"]');
+            if (settingsIcon) settingsIcon.classList.add('active');
+            switchSidebarPanel('settings');
         }
     }
 

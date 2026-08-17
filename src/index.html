@@ -79,6 +79,14 @@
                 </div>
                 <div class="sidebar-panel" id="sidebar-panel-git" style="display:none;"></div>
                 <div class="sidebar-panel" id="sidebar-panel-placeholder" style="display:none;"></div>
+                <!-- 设置面板 -->
+                <div class="sidebar-panel" id="sidebar-panel-settings" style="display:none;">
+                    <div class="settings-group">
+                        <label class="settings-label" for="setting-max-tabs">最大标签页数量</label>
+                        <input type="number" class="settings-input" id="setting-max-tabs" min="1" max="50" step="1">
+                        <p class="settings-desc">打开的标签超过此数量时，自动关闭最旧的未修改标签（1-50）。修改实时生效并自动保存。</p>
+                    </div>
+                </div>
             </div>
 
            <!-- 编辑区 -->
