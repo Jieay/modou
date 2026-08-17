@@ -43,6 +43,7 @@
        restoring: false,
        maxTabs: 20,
        awaitingMaxTabs: false,
+       fileClipboard: null,
    };
 
    // DOM 元素缓存
@@ -250,8 +251,9 @@
            });
            document.addEventListener('mousemove', function(e) {
                if (!dragging) return;
+               // 终端区在右侧：手柄向左拖（delta 为负）应变宽，与侧边栏方向相反
                var delta = e.clientX - startX;
-               var newWidth = startWidth + delta;
+               var newWidth = startWidth - delta;
                var editorArea = document.querySelector('.editor-area');
                if (editorArea) {
                    var totalWidth = editorArea.offsetWidth;
@@ -424,6 +426,22 @@
                 }
             });
         }
+
+        // 侧边栏头部：在项目根目录新建文件/文件夹
+        function startCreateAtRoot(isDir) {
+            startCreate({
+                node: null,
+                newItemContainer: elements['file-tree'],
+                newItemDepth: 0,
+                refreshChildren: function() {
+                    refreshTreeDir(state.projectRoot, elements['file-tree'], 0);
+                }
+            }, isDir);
+        }
+        var btnNewFile = document.getElementById('btn-new-file');
+        if (btnNewFile) btnNewFile.addEventListener('click', function() { startCreateAtRoot(false); });
+        var btnNewFolder = document.getElementById('btn-new-folder');
+        if (btnNewFolder) btnNewFolder.addEventListener('click', function() { startCreateAtRoot(true); });
 
         // 侧边栏宽度拖拽（树形区与编辑区之间）
         var sidebar = document.getElementById('sidebar');
@@ -846,7 +864,22 @@
                 item.addEventListener('contextmenu', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    showTreeContextMenu(e.clientX, e.clientY, item, node, name);
+                    showTreeContextMenu(e.clientX, e.clientY, {
+                        item: item, node: node, nameSpan: name,
+                        newItemContainer: childrenContainer,
+                        newItemDepth: depth + 1,
+                        expand: function() {
+                            item.classList.add('expanded');
+                            childrenContainer.classList.add('expanded');
+                            chevron.textContent = '▾';
+                        },
+                        refreshChildren: function() {
+                            refreshTreeNode(node, childrenContainer, depth);
+                        },
+                        refreshParent: function() {
+                            refreshTreeDir(parentDirOf(node), container, depth);
+                        }
+                    });
                 });
 
                 // 已有子节点数据则直接渲染（懒加载前为空）
@@ -888,18 +921,232 @@
                 item.addEventListener('contextmenu', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    showTreeContextMenu(e.clientX, e.clientY, item, node, name);
+                    showTreeContextMenu(e.clientX, e.clientY, {
+                        item: item, node: node, nameSpan: name,
+                        refreshParent: function() {
+                            refreshTreeDir(parentDirOf(node), container, depth);
+                        }
+                    });
                 });
                 container.appendChild(item);
             }
         });
     }
 
-    // 文件树右键菜单
-    function showTreeContextMenu(x, y, item, node, nameSpan) {
-        showContextMenu(x, y, [
-            { label: '重命名', action: function() { startRename(item, node, nameSpan); } },
-        ]);
+    // 文件树右键菜单（ctx 携带节点与刷新回调，由 renderFileTree 构造）
+    function showTreeContextMenu(x, y, ctx) {
+        var node = ctx.node;
+        var items = [];
+
+        if (node.is_dir) {
+            items.push({ label: '新建文件', action: function() { startCreate(ctx, false); } });
+            items.push({ label: '新建文件夹', action: function() { startCreate(ctx, true); } });
+            items.push({ separator: true });
+        }
+
+        items.push({ label: '复制', action: function() {
+            state.fileClipboard = { path: node.path, name: node.name, isDir: node.is_dir, mode: 'copy' };
+            updateStatus('已复制: ' + node.name);
+        } });
+        items.push({ label: '剪切', action: function() {
+            state.fileClipboard = { path: node.path, name: node.name, isDir: node.is_dir, mode: 'cut' };
+            updateStatus('已剪切: ' + node.name);
+        } });
+        if (state.fileClipboard) {
+            items.push({ label: '粘贴', action: function() { pasteFromClipboard(ctx); } });
+        }
+        items.push({ separator: true });
+        items.push({ label: '复制路径', action: function() { copyToClipboard(node.path); } });
+        items.push({ label: '重命名', action: function() { startRename(ctx.item, node, ctx.nameSpan); } });
+        items.push({ separator: true });
+        items.push({ label: '删除', action: function() { confirmDelete(ctx); } });
+
+        showContextMenu(x, y, items);
+    }
+
+    // 节点的父目录路径
+    function parentDirOf(node) {
+        return node.path.substring(0, node.path.length - node.name.length - 1);
+    }
+
+    // 重新加载某目录的树节点（path 对应的 container 区域）
+    function refreshTreeDir(path, container, depth) {
+        invoke('list_dir', { path: path }).then(function(children) {
+            container.innerHTML = '';
+            renderFileTree(children || [], container, depth);
+        }).catch(function(e) {
+            updateStatus('刷新文件树失败: ' + e);
+        });
+    }
+
+    // 重新加载目录节点的子级（同步 node.children 供后续展开复用）
+    function refreshTreeNode(node, childrenContainer, depth) {
+        invoke('list_dir', { path: node.path }).then(function(children) {
+            node.children = children || [];
+            node.loaded = true;
+            childrenContainer.innerHTML = '';
+            renderFileTree(node.children, childrenContainer, depth + 1);
+        }).catch(function(e) {
+            updateStatus('刷新文件树失败: ' + e);
+        });
+    }
+
+    // 新建文件/文件夹（内联输入名称）
+    function startCreate(ctx, isDir) {
+        if (!state.projectRoot) {
+            updateStatus('未打开文件夹');
+            return;
+        }
+        if (ctx.expand) ctx.expand();
+
+        var parentPath = ctx.node ? ctx.node.path : state.projectRoot;
+        var container = ctx.newItemContainer;
+        var depth = ctx.newItemDepth || 0;
+
+        var item = document.createElement('div');
+        item.className = 'tree-item';
+        item.style.paddingLeft = (8 + depth * 12) + 'px';
+
+        var icon = document.createElement('span');
+        icon.className = 'icon';
+        icon.textContent = isDir ? '📁' : '📄';
+        item.appendChild(icon);
+
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'tree-rename-input';
+        input.placeholder = isDir ? '文件夹名称' : '文件名称';
+        item.appendChild(input);
+
+        container.insertBefore(item, container.firstChild);
+        input.focus();
+
+        var finished = false;
+        function cleanup() {
+            if (item.parentNode) item.parentNode.removeChild(item);
+        }
+        function commit() {
+            if (finished) return;
+            finished = true;
+            var name = input.value.trim();
+            if (!name || name.indexOf('/') >= 0) {
+                cleanup();
+                return;
+            }
+            invoke(isDir ? 'create_dir' : 'create_file', { path: parentPath + '/' + name }).then(function() {
+                cleanup();
+                ctx.refreshChildren();
+                updateStatus('已创建: ' + name);
+            }).catch(function(e) {
+                cleanup();
+                updateStatus('创建失败: ' + e);
+            });
+        }
+        input.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+            if (e.key === 'Enter') commit();
+            else if (e.key === 'Escape') {
+                finished = true;
+                cleanup();
+            }
+        });
+        input.addEventListener('blur', commit);
+    }
+
+    // 复制/剪切后的粘贴（复制文件夹为递归复制，剪切即移动）
+    function pasteFromClipboard(ctx) {
+        var cb = state.fileClipboard;
+        if (!cb) return;
+        var targetDir = ctx.node.is_dir ? ctx.node.path : parentDirOf(ctx.node);
+        var dst = targetDir + '/' + cb.name;
+        if (dst === cb.path) {
+            // 粘贴到原位置：剪切无意义；复制则生成 "xxx copy" 副本
+            if (cb.mode === 'cut') return;
+            dst = targetDir + '/' + deriveCopyName(cb.name, cb.isDir);
+        }
+        var refresh = ctx.node.is_dir ? ctx.refreshChildren : ctx.refreshParent;
+        if (ctx.node.is_dir && ctx.expand) ctx.expand();
+
+        if (cb.mode === 'copy') {
+            invoke('copy_path', { srcPath: cb.path, dstPath: dst }).then(function() {
+                refresh();
+                updateStatus('已粘贴: ' + cb.name);
+            }).catch(function(e) {
+                updateStatus('粘贴失败: ' + e);
+            });
+        } else {
+            var src = cb.path;
+            invoke('rename_path', { oldPath: src, newPath: dst }).then(function() {
+                state.fileClipboard = null;
+                syncTabsAfterMove(src, dst);
+                refresh();
+                updateStatus('已移动: ' + cb.name);
+            }).catch(function(e) {
+                updateStatus('移动失败: ' + e);
+            });
+        }
+    }
+
+    // 同目录复制副本的名称：a.txt → a copy.txt；src → src copy
+    function deriveCopyName(name, isDir) {
+        if (isDir) return name + ' copy';
+        var dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) + ' copy' + name.substring(dot) : name + ' copy';
+    }
+
+    // 移动路径后同步打开的标签，避免保存写回旧路径
+    function syncTabsAfterMove(oldPath, newPath) {
+        var newName = newPath.split('/').pop();
+        state.openTabs.forEach(function(t) {
+            if (t.path === oldPath) {
+                t.path = newPath;
+                t.name = newName;
+            } else if (t.path.indexOf(oldPath + '/') === 0) {
+                t.path = newPath + t.path.substring(oldPath.length);
+            }
+        });
+        renderTabs();
+        saveSession();
+    }
+
+    // 删除前确认（优先用系统对话框）
+    function confirmDelete(ctx) {
+        var node = ctx.node;
+        var message = (node.is_dir ? '确定删除文件夹「' : '确定删除文件「') + node.name + '」吗？此操作不可恢复。';
+        var doDelete = function() {
+            invoke('delete_path', { path: node.path }).then(function() {
+                // 关闭已打开的被删文件标签
+                for (var i = state.openTabs.length - 1; i >= 0; i--) {
+                    var p = state.openTabs[i].path;
+                    if (p === node.path || p.indexOf(node.path + '/') === 0) closeTab(i);
+                }
+                ctx.refreshParent();
+                updateStatus('已删除: ' + node.name);
+            }).catch(function(e) {
+                updateStatus('删除失败: ' + e);
+            });
+        };
+        var dlg = window.__TAURI__ && window.__TAURI__.dialog;
+        if (dlg && dlg.ask) {
+            dlg.ask(message, { title: '删除确认', kind: 'warning' }).then(function(ok) {
+                if (ok) doDelete();
+            });
+        } else if (window.confirm(message)) {
+            doDelete();
+        }
+    }
+
+    // 复制文本到系统剪贴板
+    function copyToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() {
+                updateStatus('已复制路径');
+            }).catch(function() {
+                updateStatus('复制路径失败');
+            });
+        } else {
+            updateStatus('剪贴板不可用');
+        }
     }
 
     // 内联重命名文件/文件夹
@@ -1191,6 +1438,12 @@
         contextMenu.className = 'context-menu';
 
         items.forEach(function(it) {
+            if (it.separator) {
+                var sep = document.createElement('div');
+                sep.className = 'context-menu-separator';
+                contextMenu.appendChild(sep);
+                return;
+            }
             var item = document.createElement('div');
             item.className = 'context-menu-item';
             item.textContent = it.label;
@@ -1392,6 +1645,7 @@
         { name: '文件: 打开文件夹', action: openProject },
        { name: '文件: 保存文件', action: saveCurrentFile },
         { name: '终端: 新建终端', action: function() { dock.start(); } },
+        { name: '终端: 显示/隐藏终端面板', action: function() { dock.toggle(); } },
         { name: '转到: 转到文件', action: openSearch },
         { name: '标签: 关闭所有标签', action: closeAllTabs },
         { name: '设置: 最大标签页数量', action: beginMaxTabsInput },
@@ -1526,6 +1780,9 @@
        } else if (cmdKey && e.key === '`') {
            e.preventDefault();
             dock.start();
+        } else if (cmdKey && e.key === 'j') {
+            e.preventDefault();
+            dock.toggle();
         } else if (cmdKey && e.key === 'w') {
             e.preventDefault();
             if (state.activeTabIndex >= 0) closeTab(state.activeTabIndex);

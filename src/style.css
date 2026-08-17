@@ -534,6 +534,12 @@ body {
     color: #ffffff;
 }
 
+.context-menu-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
+
 /* 设置面板 */
 .settings-group {
     padding: 12px;

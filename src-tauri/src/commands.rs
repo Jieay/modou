@@ -135,6 +135,67 @@ pub async fn rename_path(old_path: String, new_path: String) -> Result<(), Strin
     std::fs::rename(&old_p, &new_p).map_err(|e| e.to_string())
 }
 
+/// 新建空文件（已存在则报错）
+#[tauri::command]
+pub async fn create_file(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.exists() {
+        return Err("文件已存在".to_string());
+    }
+    std::fs::write(&p, "").map_err(|e| e.to_string())
+}
+
+/// 新建文件夹（已存在则报错）
+#[tauri::command]
+pub async fn create_dir(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.exists() {
+        return Err("文件夹已存在".to_string());
+    }
+    std::fs::create_dir(&p).map_err(|e| e.to_string())
+}
+
+/// 删除文件或文件夹（文件夹递归删除，不可恢复）
+#[tauri::command]
+pub async fn delete_path(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err("路径不存在".to_string());
+    }
+    if p.is_dir() {
+        std::fs::remove_dir_all(&p).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(&p).map_err(|e| e.to_string())
+    }
+}
+
+/// 复制文件或文件夹到目标路径（文件夹递归复制，拒绝覆盖已存在路径）
+#[tauri::command]
+pub async fn copy_path(src_path: String, dst_path: String) -> Result<(), String> {
+    fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+        if src.is_dir() {
+            std::fs::create_dir(dst)?;
+            for entry in std::fs::read_dir(src)? {
+                let entry = entry?;
+                copy_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+            }
+            Ok(())
+        } else {
+            std::fs::copy(src, dst).map(|_| ())
+        }
+    }
+
+    let src = PathBuf::from(&src_path);
+    let dst = PathBuf::from(&dst_path);
+    if !src.exists() {
+        return Err("源路径不存在".to_string());
+    }
+    if dst.exists() {
+        return Err("目标路径已存在".to_string());
+    }
+    copy_recursive(&src, &dst).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_file_tree(state: State<'_, AppState>) -> Result<Vec<FileNode>, String> {
     let tree = state.file_tree.lock().unwrap();

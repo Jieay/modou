@@ -9,6 +9,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-ask"
   ]
 }
