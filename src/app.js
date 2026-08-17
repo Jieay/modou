@@ -1462,7 +1462,9 @@
         var tab = state.openTabs[state.activeTabIndex];
         if (!tab) return;
         var item = findTreeItem(tab.path);
-        if (item) {
+        // 折叠的目录其子节点仍在 DOM 中（只是 display:none），
+        // 必须用 offsetParent 判断可见性，否则高亮落在隐藏节点上
+        if (item && item.offsetParent !== null) {
             item.classList.add('selected');
             item.scrollIntoView({ block: 'nearest' });
         } else {
