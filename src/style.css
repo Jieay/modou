@@ -168,26 +168,28 @@ body {
 
 .context-menu-item-delete {
     margin-left: 12px;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 3px;
-    font-size: 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 700;
     color: var(--fg-secondary);
-    opacity: 0;
+    background: rgba(128, 128, 128, 0.2);
     flex-shrink: 0;
 }
 
-/* 菜单项选中时背景为主题蓝，删除按钮需反白保证可读 */
+/* 菜单项选中时背景为主题蓝：删除按钮用深色底块 + 白色 × 形成明确对比（参考 VS Code 列表操作按钮） */
 .context-menu-item:hover .context-menu-item-delete {
-    opacity: 1;
-    color: rgba(255, 255, 255, 0.85);
+    color: #ffffff;
+    background: rgba(0, 0, 0, 0.35);
 }
 
+/* 悬停删除按钮本身：红色 destructive 语义（macOS/Windows 通用约定） */
 .context-menu-item-delete:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: #e81123;
     color: #ffffff;
 }
 
