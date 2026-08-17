@@ -12,6 +12,8 @@
 ### Fixed
 
 - 修复图片预览 403：scope 显式关闭 requireLiteralLeadingDot（Unix 默认通配符不匹配点目录），并在打开项目时动态授权 asset 协议访问项目目录
+- 修复 Markdown 代码块 ```bash 无语法高亮（shell 语言注册 id 不含 bash，补注册 bash/sh 复用其词法）
+- 标签悬停显示完整文件路径，长文件名截断时可查看
 
 ## [0.1.7] - 2026-08-17
 

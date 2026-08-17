@@ -771,6 +771,16 @@
                     }
                 });
 
+                // markdown 代码块按语言 id 精确匹配内嵌高亮；shell 的注册 id 是
+                // "shell"（别名只有 sh），导致 ```bash 无法命中，这里补注册 bash/sh 复用其词法
+                require(['vs/basic-languages/shell/shell'], function(mod) {
+                    ['bash', 'sh'].forEach(function(id) {
+                        monaco.languages.register({ id: id, aliases: [id] });
+                        monaco.languages.setMonarchTokensProvider(id, mod.language);
+                        monaco.languages.setLanguageConfiguration(id, mod.conf);
+                    });
+                });
+
                 // 创建编辑器（先清空容器，避免残留备用 <pre> 文本）
                 if (elements['monaco-editor']) {
                     elements['monaco-editor'].innerHTML = '';
@@ -1617,6 +1627,8 @@
         state.openTabs.forEach(function(tab, index) {
             var tabEl = document.createElement('div');
             tabEl.className = 'tab' + (index === state.activeTabIndex ? ' active' : '');
+            // 悬停显示完整路径，长文件名被截断时可查看
+            tabEl.title = tab.path;
 
             if (tab.isDirty) {
                 var dot = document.createElement('span');
