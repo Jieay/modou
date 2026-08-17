@@ -55,17 +55,23 @@ open: bundle
 	open src-tauri/target/release/bundle/macos/modou.app
 
 # 一键发布新版本：递增版本号 → 构建 → 提交 → 打 Tag → 推送 → 创建 GitHub Release 并上传 .dmg
+# Release notes 取自 CHANGELOG.md 对应版本段落（无该段落时回退为 GitHub 自动生成）
 # 用法：make publish（默认 patch；可 VERSION_PART=minor / major）
 publish: release
 	@VERSION=$$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])"); \
-	git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json; \
+	git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md; \
 	git commit -m "chore: 发布 v$$VERSION" \
 		-m "Co-Authored-By: $$(git config user.name) <$$(git config user.email)>"; \
 	git tag -a "v$$VERSION" -m "Release v$$VERSION"; \
 	git push origin HEAD; \
 	git push origin "v$$VERSION"; \
 	DMG=$$(ls src-tauri/target/release/bundle/dmg/*_$$VERSION_*.dmg | head -1); \
-	gh release create "v$$VERSION" "$$DMG" --title "v$$VERSION" --generate-notes; \
+	if python3 scripts/release_notes.py "$$VERSION" > /tmp/modou_release_notes.md 2>/dev/null; then \
+		NOTES_OPT="--notes-file /tmp/modou_release_notes.md"; \
+	else \
+		NOTES_OPT="--generate-notes"; \
+	fi; \
+	gh release create "v$$VERSION" "$$DMG" --title "v$$VERSION" $$NOTES_OPT; \
 	echo "已发布 v$$VERSION 并上传 $$DMG"
 
 # 显示帮助信息
