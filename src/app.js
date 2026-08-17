@@ -25,6 +25,22 @@
         };
     }
 
+    // 是否主窗口（仅主窗口恢复/保存会话，新建窗口打开为空白）
+    var isMainWindow = true;
+    if (window.__TAURI__ && window.__TAURI__.window) {
+        try {
+            isMainWindow = window.__TAURI__.window.getCurrentWindow().label === 'main';
+        } catch (e) {}
+    }
+
+    // 窗口标题跟随当前项目文件夹名（Dock 右键 / Mission Control 可区分窗口）
+    function updateWindowTitle() {
+        if (window.__TAURI__ && window.__TAURI__.window) {
+            var title = state.projectRoot ? state.projectRoot.split('/').pop() : '墨斗';
+            window.__TAURI__.window.getCurrentWindow().setTitle(title).catch(function() {});
+        }
+    }
+
     // 应用状态
     var state = {
         projectRoot: null,
@@ -288,8 +304,9 @@
        }
    };
 
-   // 保存当前会话（项目路径 + 打开的文件 + 活动文件）
+   // 保存当前会话（项目路径 + 打开的文件 + 活动文件）；仅主窗口
    function saveSession() {
+       if (!isMainWindow) return;
        if (state.restoring) return;
        var session = {
            projectRoot: state.projectRoot,
@@ -300,8 +317,9 @@
        invoke('save_session', { session: session }).catch(function() {});
    }
 
-   // 恢复上次会话（上次关闭时的项目与文件）
+   // 恢复上次会话（上次关闭时的项目与文件）；仅主窗口
    function restoreSession() {
+       if (!isMainWindow) return;
        invoke('load_session').then(function(session) {
            if (!session || !session.projectRoot) return;
            state.restoring = true;
@@ -312,6 +330,7 @@
                renderFileTree(state.fileTree);
                updateGitStatus();
                updateProjectSwitcher();
+               updateWindowTitle();
 
                var files = session.openFiles || [];
                var chain = Promise.resolve();
@@ -853,6 +872,7 @@
             updateGitStatus();
             updateStatus('项目已打开');
             updateProjectSwitcher();
+            updateWindowTitle();
             saveSession();
             // 记录到系统菜单/Dock 的「最近打开」
             invoke('add_recent_project', { path: path }).catch(function() {});
