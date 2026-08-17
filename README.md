@@ -35,6 +35,16 @@
 | ⌘+T | 新建终端 |
 | ⌘+W | 关闭标签 |
 
+## 下载安装
+
+从 [Releases](https://github.com/Jieay/modou/releases) 下载最新的 `.dmg`（Apple Silicon），拖拽到「应用程序」即可。
+
+> **注意**：应用未经过 Apple 开发者签名和公证，首次打开会提示"已损坏，无法打开"。这是 Gatekeeper 对未签名应用的拦截，并非应用真的损坏。在终端执行以下命令移除隔离属性后即可正常打开：
+>
+> ```bash
+> xattr -cr /Applications/modou.app
+> ```
+
 ## 构建与打包
 
 ```bash
