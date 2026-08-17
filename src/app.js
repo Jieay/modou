@@ -413,7 +413,7 @@
     function cacheElements() {
         var ids = [
             'file-tree', 'tab-bar', 'editor-content', 'welcome-screen',
-            'monaco-editor', 'status-message', 'git-branch', 'branch-name',
+            'monaco-editor', 'image-viewer', 'status-message', 'git-branch', 'branch-name',
             'git-changes', 'git-status', 'cursor-position', 'editor-spaces',
             'editor-encoding', 'editor-eol', 'file-language',
             'search-overlay', 'search-input', 'search-results',
@@ -1485,6 +1485,32 @@
     // 打开文件
     function openFile(path) {
         console.log('打开文件:', path);
+
+        // 图片文件：不走文本读取，直接以预览标签打开
+        if (isImageFile(path)) {
+            var imgIndex = state.openTabs.findIndex(function(t) { return t.path === path; });
+            if (imgIndex >= 0) {
+                switchTab(imgIndex);
+                return Promise.resolve();
+            }
+            if (state.openTabs.length >= state.maxTabs) {
+                var evictImg = state.openTabs.findIndex(function(t) { return !t.isDirty; });
+                if (evictImg >= 0) closeTab(evictImg);
+            }
+            state.openTabs.push({
+                path: path,
+                name: path.split('/').pop(),
+                isImage: true,
+                isDirty: false,
+                language: 'image',
+            });
+            state.activeTabIndex = state.openTabs.length - 1;
+            renderTabs();
+            renderEditor();
+            saveSession();
+            return Promise.resolve();
+        }
+
         updateStatus('正在加载文件...');
 
         return invoke('read_file', { path: path }).then(function(file) {
@@ -1519,6 +1545,13 @@
             console.error('加载文件失败:', e);
             updateStatus('加载文件失败: ' + e);
         });
+    }
+
+    // 判断是否为可预览的图片文件
+    var IMAGE_EXTS = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, bmp: 1, ico: 1, svg: 1 };
+    function isImageFile(path) {
+        var ext = path.split('.').pop().toLowerCase();
+        return !!IMAGE_EXTS[ext];
     }
 
     // 获取语言 ID（仅映射已内置的 Monaco 语言模块）
@@ -1624,7 +1657,8 @@
 
     // 切换标签
     function switchTab(index) {
-        if (state.activeTabIndex >= 0 && state.monacoEditor && state.openTabs[state.activeTabIndex]) {
+        if (state.activeTabIndex >= 0 && state.monacoEditor && state.openTabs[state.activeTabIndex]
+            && !state.openTabs[state.activeTabIndex].isImage) {
             state.openTabs[state.activeTabIndex].content = state.monacoEditor.getValue();
         }
 
@@ -1642,6 +1676,7 @@
         }
         if (state.activeTabIndex < 0) {
             if (elements['monaco-editor']) elements['monaco-editor'].style.display = 'none';
+            if (elements['image-viewer']) elements['image-viewer'].style.display = 'none';
             if (elements['welcome-screen']) elements['welcome-screen'].style.display = 'flex';
         } else {
             renderEditor();
@@ -1666,6 +1701,7 @@
         state.openTabs = [];
         state.activeTabIndex = -1;
         if (elements['monaco-editor']) elements['monaco-editor'].style.display = 'none';
+        if (elements['image-viewer']) elements['image-viewer'].style.display = 'none';
         if (elements['welcome-screen']) elements['welcome-screen'].style.display = 'flex';
         renderTabs();
         saveSession();
@@ -1740,14 +1776,36 @@
 
     // 渲染编辑器
     function renderEditor() {
+        var viewer = elements['image-viewer'];
         if (state.activeTabIndex < 0 || state.openTabs.length === 0) {
             if (elements['monaco-editor']) elements['monaco-editor'].style.display = 'none';
+            if (viewer) viewer.style.display = 'none';
             if (elements['welcome-screen']) elements['welcome-screen'].style.display = 'flex';
             return;
         }
 
         var tab = state.openTabs[state.activeTabIndex];
         if (elements['welcome-screen']) elements['welcome-screen'].style.display = 'none';
+
+        // 图片标签：预览视图
+        if (tab.isImage) {
+            if (elements['monaco-editor']) elements['monaco-editor'].style.display = 'none';
+            if (viewer) {
+                viewer.style.display = 'flex';
+                renderImageViewer(tab);
+            }
+            if (elements['cursor-position']) elements['cursor-position'].style.display = 'none';
+            if (elements['editor-spaces']) elements['editor-spaces'].style.display = 'none';
+            if (elements['editor-encoding']) elements['editor-encoding'].style.display = 'none';
+            if (elements['editor-eol']) elements['editor-eol'].style.display = 'none';
+            if (elements['file-language']) {
+                elements['file-language'].style.display = 'flex';
+                elements['file-language'].textContent = '图片';
+            }
+            return;
+        }
+
+        if (viewer) viewer.style.display = 'none';
         if (elements['monaco-editor']) elements['monaco-editor'].style.display = 'block';
 
         if (state.monacoEditor && state.monacoLoaded) {
@@ -1771,11 +1829,55 @@
         }
     }
 
+    // 渲染图片预览（asset 协议读取，经一次 fetch 同时获得尺寸与大小）
+    function renderImageViewer(tab) {
+        var img = document.getElementById('image-viewer-img');
+        var info = document.getElementById('image-viewer-info');
+        if (!img || !info) return;
+
+        img.style.display = 'none';
+        info.textContent = '加载中…';
+
+        var core = window.__TAURI__ && window.__TAURI__.core;
+        if (!core || !core.convertFileSrc) {
+            info.textContent = '当前环境不支持图片预览';
+            return;
+        }
+
+        fetch(core.convertFileSrc(tab.path)).then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.blob();
+        }).then(function(blob) {
+            var objectUrl = URL.createObjectURL(blob);
+            img.onload = function() {
+                info.textContent = tab.name + ' — ' + img.naturalWidth + ' × ' + img.naturalHeight +
+                    ' 像素 · ' + formatFileSize(blob.size);
+                img.style.display = 'block';
+                URL.revokeObjectURL(objectUrl);
+            };
+            img.onerror = function() {
+                info.textContent = '图片加载失败';
+                URL.revokeObjectURL(objectUrl);
+            };
+            img.src = objectUrl;
+        }).catch(function(e) {
+            info.textContent = '图片加载失败: ' + e;
+        });
+    }
+
+    // 文件大小格式化
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    }
+
     // 保存当前文件
     function saveCurrentFile() {
         if (state.activeTabIndex < 0) return;
 
         var tab = state.openTabs[state.activeTabIndex];
+        if (!tab || tab.isImage) return;
         var content = state.monacoEditor ? state.monacoEditor.getValue() : tab.content;
 
         invoke('save_file', { path: tab.path, content: content }).then(function() {

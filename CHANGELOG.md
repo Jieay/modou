@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 图片文件预览（png/jpg/gif/webp/bmp/ico/svg）：只读预览视图、棋盘格透明底衬，底部显示分辨率与文件大小（Tauri asset 协议流式读取）
+
 ## [0.1.7] - 2026-08-17
 
 ### Added

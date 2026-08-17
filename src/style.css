@@ -730,6 +730,41 @@ body {
     background: #3c3c3c;
 }
 
+/* 图片预览（棋盘格底衬便于观察透明图） */
+.image-viewer {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.image-viewer-stage {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    background: repeating-conic-gradient(#262626 0% 25%, #2f2f2f 0% 50%);
+    background-size: 20px 20px;
+}
+
+.image-viewer-stage img {
+    max-width: 95%;
+    max-height: 95%;
+    object-fit: contain;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
+}
+
+.image-viewer-info {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+    background: var(--bg-tab);
+    border-top: 1px solid var(--border);
+    text-align: center;
+}
+
 /* ========== 编辑器内容 ========== */
 .editor-content {
     flex: 1;
