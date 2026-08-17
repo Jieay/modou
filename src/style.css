@@ -126,9 +126,9 @@ body {
 .project-switcher-btn {
     display: flex;
     align-items: center;
-    gap: 4px;
-    background: none;
-    border: none;
+    gap: 5px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 3px 8px;
     font-size: 12px;
@@ -141,6 +141,7 @@ body {
 
 .project-switcher-btn:hover {
     background: var(--bg-hover);
+    border-color: var(--accent);
 }
 
 .project-switcher-btn #project-switcher-name {
@@ -150,8 +151,8 @@ body {
 }
 
 .project-switcher-caret {
-    font-size: 9px;
-    color: var(--fg-secondary);
+    color: #c5c5c5;
+    flex-shrink: 0;
 }
 
 /* 右键/下拉菜单项的行内删除按钮 */
@@ -289,7 +290,7 @@ body {
 
 .tree-item .icon {
     width: 16px;
-    margin-right: 6px;
+    margin-right: 4px;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -303,7 +304,7 @@ body {
 }
 
 .tree-item .chevron {
-    width: 16px;
+    width: 14px;
     transition: transform 0.15s;
     flex-shrink: 0;
     display: inline-flex;
