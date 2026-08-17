@@ -46,6 +46,7 @@ pub fn run() {
             load_session,
             recent::add_recent_project,
             recent::get_recent_projects,
+            recent::remove_recent_project,
         ])
         .on_menu_event(|app, event| recent::on_menu_event(app, event.id().as_ref()))
         .setup(|app| {

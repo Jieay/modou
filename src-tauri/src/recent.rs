@@ -59,13 +59,11 @@ pub fn clear(app: &AppHandle) {
     let _ = build_menu(app);
 }
 
-/// 删除指定下标的记录并刷新菜单
-pub fn remove_at(app: &AppHandle, index: usize) {
+/// 按路径删除单条记录并刷新菜单
+pub fn remove(app: &AppHandle, path: &str) {
     {
         let mut list = RECENT_PROJECTS.lock().unwrap();
-        if index < list.len() {
-            list.remove(index);
-        }
+        list.retain(|p| p != path);
     }
     save(app);
     let _ = build_menu(app);
@@ -90,6 +88,11 @@ pub fn get_recent_projects() -> Vec<String> {
     list()
 }
 
+#[tauri::command]
+pub fn remove_recent_project(path: String, app: AppHandle) {
+    remove(&app, &path);
+}
+
 /// 构建系统菜单（全中文；默认菜单为英文故整体手工构建）
 pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     // 最近打开子菜单
@@ -108,18 +111,9 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
                     .build(app)?,
             );
         }
-        // 单条删除子菜单（原生菜单项内无法放置按钮，用子菜单实现逐条删除）
-        let mut remove_sub = SubmenuBuilder::new(app, "删除记录");
-        for (i, p) in recents.iter().enumerate() {
-            remove_sub = remove_sub.item(
-                &MenuItemBuilder::with_id(format!("modou.recent.remove.{i}"), display_name(p))
-                    .build(app)?,
-            );
-        }
-        recent_sub = recent_sub
-            .separator()
-            .item(&remove_sub.build()?)
-            .item(&MenuItemBuilder::with_id("modou.recent.clear", "清除全部记录").build(app)?);
+        recent_sub = recent_sub.separator().item(
+            &MenuItemBuilder::with_id("modou.recent.clear", "清除全部记录").build(app)?,
+        );
     }
 
     // App 菜单（macOS 上此菜单标题由系统显示为应用名）
@@ -205,11 +199,7 @@ pub fn on_menu_event(app: &AppHandle, id: &str) {
             }
         }
         _ => {
-            if let Some(rest) = id.strip_prefix("modou.recent.remove.") {
-                if let Ok(i) = rest.parse::<usize>() {
-                    remove_at(app, i);
-                }
-            } else if let Some(rest) = id.strip_prefix("modou.recent.") {
+            if let Some(rest) = id.strip_prefix("modou.recent.") {
                 if let Ok(i) = rest.parse::<usize>() {
                     let path = list().get(i).cloned();
                     if let (Some(w), Some(p)) = (focused_window(app), path) {

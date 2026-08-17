@@ -311,6 +311,7 @@
                state.fileTree = nodes || [];
                renderFileTree(state.fileTree);
                updateGitStatus();
+               updateProjectSwitcher();
 
                var files = session.openFiles || [];
                var chain = Promise.resolve();
@@ -453,6 +454,15 @@
         var btnNewFolder = document.getElementById('btn-new-folder');
         if (btnNewFolder) btnNewFolder.addEventListener('click', function() { startCreateAtRoot(true); });
 
+        // 项目切换器下拉
+        var switcherBtn = document.getElementById('project-switcher-btn');
+        if (switcherBtn) {
+            switcherBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                openProjectSwitcherDropdown();
+            });
+        }
+
         // 文件树空白处右键：在项目根目录新建/刷新
         var fileTreeEl = elements['file-tree'];
         if (fileTreeEl) {
@@ -568,8 +578,7 @@
     // 切换侧边栏面板（资源管理器 / 搜索 / Git / 调试 / 设置）
     function switchSidebarPanel(panel) {
         var titles = {
-            // 打开项目后资源管理器标题显示文件夹名（与 VS Code 单目录工作区一致）
-            explorer: state.projectRoot ? state.projectRoot.split('/').pop() : '资源管理器',
+            explorer: '资源管理器',
             search: '搜索',
             git: '源代码管理',
             debug: '运行和调试',
@@ -843,9 +852,7 @@
             renderFileTree(state.fileTree);
             updateGitStatus();
             updateStatus('项目已打开');
-            // 资源管理器标题显示项目文件夹名
-            var titleEl = document.getElementById('sidebar-title');
-            if (titleEl) titleEl.textContent = path.split('/').pop();
+            updateProjectSwitcher();
             saveSession();
             // 记录到系统菜单/Dock 的「最近打开」
             invoke('add_recent_project', { path: path }).catch(function() {});
@@ -853,6 +860,51 @@
             console.error('加载项目失败:', e);
             updateStatus('打开项目失败: ' + e);
         });
+    }
+
+    // 项目切换器：显示当前项目文件夹名
+    function updateProjectSwitcher() {
+        var btn = document.getElementById('project-switcher-btn');
+        var nameEl = document.getElementById('project-switcher-name');
+        if (!btn || !nameEl) return;
+        if (state.projectRoot) {
+            nameEl.textContent = state.projectRoot.split('/').pop();
+            btn.style.display = 'flex';
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+
+    // 项目切换器下拉：最近打开的项目（行内 × 可单条删除）
+    function openProjectSwitcherDropdown() {
+        var btn = document.getElementById('project-switcher-btn');
+        if (!btn) return;
+
+        invoke('get_recent_projects').then(function(list) {
+            list = list || [];
+            var items = list.map(function(p) {
+                var item = {
+                    label: p.split('/').pop(),
+                    action: function() {
+                        if (p !== state.projectRoot) loadProject(p);
+                    },
+                    remove: function() {
+                        invoke('remove_recent_project', { path: p }).then(function() {
+                            // 删除后重建下拉内容
+                            hideContextMenu();
+                            openProjectSwitcherDropdown();
+                        }).catch(function() {});
+                    }
+                };
+                if (p === state.projectRoot) item.label = '✓ ' + item.label;
+                return item;
+            });
+            if (items.length > 0) items.push({ separator: true });
+            items.push({ label: '打开文件夹…', action: openProject });
+
+            var rect = btn.getBoundingClientRect();
+            showContextMenu(rect.left, rect.bottom + 4, items);
+        }).catch(function() {});
     }
 
     // 渲染文件树
@@ -1509,7 +1561,25 @@
             }
             var item = document.createElement('div');
             item.className = 'context-menu-item';
-            item.textContent = it.label;
+
+            var label = document.createElement('span');
+            label.className = 'menu-item-label';
+            label.textContent = it.label;
+            item.appendChild(label);
+
+            // 可选的行内删除按钮（如最近项目记录）
+            if (it.remove) {
+                var del = document.createElement('span');
+                del.className = 'context-menu-item-delete';
+                del.textContent = '×';
+                del.title = '从记录中删除';
+                del.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    it.remove();
+                });
+                item.appendChild(del);
+            }
+
             item.addEventListener('click', function() {
                 it.action();
                 hideContextMenu();

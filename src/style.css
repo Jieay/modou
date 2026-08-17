@@ -114,9 +114,83 @@ body {
     flex-shrink: 0;
 }
 
+/* 项目切换器（窗口顶部左侧，红绿灯按钮右边） */
+.project-switcher {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    padding-left: 78px;
+    flex-shrink: 0;
+}
+
+.project-switcher-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--fg-primary);
+    cursor: pointer;
+    max-width: 180px;
+}
+
+.project-switcher-btn:hover {
+    background: var(--bg-hover);
+}
+
+.project-switcher-btn #project-switcher-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-switcher-caret {
+    font-size: 9px;
+    color: var(--fg-secondary);
+}
+
+/* 右键/下拉菜单项的行内删除按钮 */
+.context-menu-item {
+    display: flex;
+    align-items: center;
+}
+
+.context-menu-item > .menu-item-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.context-menu-item-delete {
+    margin-left: 12px;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+    opacity: 0;
+    flex-shrink: 0;
+}
+
+.context-menu-item:hover .context-menu-item-delete {
+    opacity: 1;
+}
+
+.context-menu-item-delete:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
 .sidebar-header {
-    /* 顶部留白避开 macOS 红绿灯按钮（约 y<28，x<80），与活动栏 34px 对齐再留余量 */
-    padding: 38px 16px 10px;
+    padding: 6px 16px 10px;
     font-size: 11px;
     font-weight: 600;
     color: var(--fg-secondary);

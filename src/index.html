@@ -45,6 +45,13 @@
 
             <!-- 侧边栏 -->
             <div class="sidebar" id="sidebar">
+                <!-- 项目切换器（顶部留白避开红绿灯按钮，按钮右侧空白可拖拽窗口） -->
+                <div class="project-switcher" data-tauri-drag-region>
+                    <button class="project-switcher-btn" id="project-switcher-btn" style="display:none;">
+                        <span id="project-switcher-name"></span>
+                        <span class="project-switcher-caret">▾</span>
+                    </button>
+                </div>
                 <div class="sidebar-header" data-tauri-drag-region>
                     <span id="sidebar-title">资源管理器</span>
                     <div class="sidebar-actions">
