@@ -62,7 +62,7 @@ impl FileTree {
         Ok(entries)
     }
 
-    fn should_ignore(path: &Path) -> bool {
+    pub(crate) fn should_ignore(path: &Path) -> bool {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         matches!(
             name,
@@ -78,8 +78,26 @@ impl FileTree {
     }
 }
 
+/// 在目录的浅层（一层子目录）内查找 git 仓库根目录（多仓工作区场景）
+pub fn find_repo_roots(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            // .git 可能是目录也可能是文件（worktree/submodule），用 exists 覆盖两者
+            if p.is_dir() && !FileTree::should_ignore(&p) && p.join(".git").exists() {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
 pub struct GitStatus {
     repo: git2::Repository,
+    /// 调用方传入的仓库根（保持调用方路径形式，用于 changes() 拼接绝对路径，
+    /// 避免 git2 内部 canonicalize 后与前端树节点路径不一致）
+    root: PathBuf,
 }
 
 /// 文件级变更（文件树徽章用），status: M/A/D
@@ -100,7 +118,25 @@ pub struct LineDiff {
 impl GitStatus {
     pub fn new(path: &Path) -> Result<Self, git2::Error> {
         let repo = git2::Repository::discover(path)?;
-        Ok(Self { repo })
+        let root = repo
+            .workdir()
+            .map(|w| w.to_path_buf())
+            .unwrap_or_else(|| path.to_path_buf());
+        Ok(Self { repo, root })
+    }
+
+    /// 直接打开已知路径的仓库（不向上查找）
+    pub fn open(path: &Path) -> Result<Self, git2::Error> {
+        let repo = git2::Repository::open(path)?;
+        Ok(Self {
+            repo,
+            root: path.to_path_buf(),
+        })
+    }
+
+    /// 仓库工作区根目录
+    pub fn workdir(&self) -> Option<PathBuf> {
+        self.repo.workdir().map(|w| w.to_path_buf())
     }
 
     /// 工作区 + 暂存区的全部变更（含未跟踪文件），返回绝对路径
@@ -109,9 +145,7 @@ impl GitStatus {
         opts.include_untracked(true).recurse_untracked_dirs(true);
 
         let mut out = Vec::new();
-        let Some(workdir) = self.repo.workdir().map(|w| w.to_path_buf()) else {
-            return out;
-        };
+        let workdir = self.root.clone();
         if let Ok(statuses) = self.repo.statuses(Some(&mut opts)) {
             for entry in statuses.iter() {
                 let s = entry.status();
@@ -496,5 +530,36 @@ mod tests {
         assert_eq!(d.added, vec![(1, 3)]);
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_repo_roots_discovers_sub_repos() {
+        // 工作区：根目录不是仓库，两个子目录各自是仓库
+        let ws = make_fixture("multirepo");
+        let (repo_a, _s1) = make_repo("multirepo-a", &[("a.txt", "1\n")]);
+        let (repo_b, _s2) = make_repo("multirepo-b", &[("b.txt", "2\n")]);
+        // 挪进工作区
+        let a_dst = ws.join("repo-a");
+        let b_dst = ws.join("repo-b");
+        fs::rename(&repo_a, &a_dst).unwrap();
+        fs::rename(&repo_b, &b_dst).unwrap();
+        fs::create_dir_all(ws.join("plain")).unwrap();
+
+        let mut roots = find_repo_roots(&ws);
+        roots.sort();
+        assert_eq!(roots, vec![a_dst.clone(), b_dst.clone()]);
+
+        // 子仓库的变更能被聚合并返回绝对路径
+        fs::write(a_dst.join("a.txt"), "changed\n").unwrap();
+        let g = GitStatus::open(&a_dst).unwrap();
+        let changes = g.changes();
+        assert!(changes.iter().any(|c| c.path == a_dst.join("a.txt").to_string_lossy() && c.status == "M"));
+
+        // diff_lines 通过 discover 命中子仓库（"1\n" → "changed\nmore\n" 为整行修改）
+        let g2 = GitStatus::new(&a_dst).unwrap();
+        let d = g2.diff_lines(&a_dst.join("a.txt"), "changed\nmore\n");
+        assert_eq!(d.modified, vec![(1, 2)]);
+
+        let _ = fs::remove_dir_all(&ws);
     }
 }

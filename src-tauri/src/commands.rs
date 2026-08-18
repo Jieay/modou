@@ -12,6 +12,8 @@ pub struct AppState {
     pub file_tree: Mutex<Option<FileTree>>,
     pub terminal_manager: Mutex<TerminalManager>,
     pub git_status: Mutex<Option<GitStatus>>,
+    /// 项目内的 git 仓库根目录列表（多仓工作区：根目录不是仓库时收集子仓库）
+    pub git_repos: Mutex<Vec<PathBuf>>,
     pub dock_manager: Mutex<Option<crate::dock_manager::DockManager>>,
     pub settings: Mutex<crate::settings::TerminalSettings>,
 }
@@ -23,6 +25,7 @@ impl Default for AppState {
             file_tree: Mutex::new(None),
             terminal_manager: Mutex::new(TerminalManager::new()),
             git_status: Mutex::new(None),
+            git_repos: Mutex::new(Vec::new()),
             dock_manager: Mutex::new(None),
             settings: Mutex::new(crate::settings::TerminalSettings::default()),
         }
@@ -77,9 +80,24 @@ pub async fn open_project(
     let tree = FileTree::new(&path).map_err(|e| e.to_string())?;
     let nodes = tree.to_nodes();
 
+    // git：根目录是仓库则直接用；否则浅层扫描子目录收集子仓库（多仓工作区）
+    let git = GitStatus::new(&path).ok();
+    let mut repos = Vec::new();
+    match &git {
+        Some(g) => {
+            if let Some(w) = g.workdir() {
+                repos.push(w);
+            }
+        }
+        None => {
+            repos = crate::fs::find_repo_roots(&path);
+        }
+    }
+
     *state.project_root.lock().unwrap() = Some(path.clone());
     *state.file_tree.lock().unwrap() = Some(tree);
-    *state.git_status.lock().unwrap() = GitStatus::new(&path).ok();
+    *state.git_status.lock().unwrap() = git;
+    *state.git_repos.lock().unwrap() = repos;
 
     Ok(nodes)
 }
@@ -202,25 +220,40 @@ pub async fn copy_path(src_path: String, dst_path: String) -> Result<(), String>
     copy_recursive(&src, &dst).map_err(|e| e.to_string())
 }
 
-/// 完整的 git 变更状态表（文件树徽章用，绝对路径）
+/// 完整的 git 变更状态表（文件树徽章用，绝对路径；聚合项目内所有仓库）
 #[tauri::command]
 pub async fn get_git_changes(state: State<'_, AppState>) -> Result<Vec<crate::fs::FileChange>, String> {
-    let guard = state.git_status.lock().unwrap();
-    Ok(guard.as_ref().map(|g| g.changes()).unwrap_or_default())
+    let repos = state.git_repos.lock().unwrap().clone();
+    let mut out = Vec::new();
+    for root in repos {
+        if let Ok(g) = GitStatus::open(&root) {
+            out.extend(g.changes());
+        }
+    }
+    Ok(out)
 }
 
-/// 当前编辑内容与 HEAD 的行级差异（编辑器 gutter 用）
+/// 当前编辑内容与 HEAD 的行级差异（编辑器 gutter 用；按文件路径向上查找所属仓库）
 #[tauri::command]
 pub async fn diff_lines(
     path: String,
     content: String,
     state: State<'_, AppState>,
 ) -> Result<crate::fs::LineDiff, String> {
-    let guard = state.git_status.lock().unwrap();
-    Ok(match guard.as_ref() {
-        Some(g) => g.diff_lines(Path::new(&path), &content),
-        None => crate::fs::LineDiff::default(),
-    })
+    let p = Path::new(&path);
+    let from = p.parent().unwrap_or(p);
+    // 从文件所在目录向上 discover，多仓工作区下自动命中所属子仓库
+    match GitStatus::new(from) {
+        Ok(g) => Ok(g.diff_lines(p, &content)),
+        Err(_) => {
+            // 回退到打开项目时的主仓库（兼容旧路径）
+            let guard = state.git_status.lock().unwrap();
+            Ok(match guard.as_ref() {
+                Some(g) => g.diff_lines(p, &content),
+                None => crate::fs::LineDiff::default(),
+            })
+        }
+    }
 }
 
 #[tauri::command]
@@ -288,13 +321,27 @@ pub async fn resize_terminal(
 
 #[tauri::command]
 pub async fn get_git_status(state: State<'_, AppState>) -> Result<GitInfo, String> {
-    let git = state.git_status.lock().unwrap();
-    match git.as_ref() {
-        Some(g) => Ok(GitInfo {
-            branch: g.branch(),
-            modified: g.modified_files(),
-            added: g.added_files(),
-        }),
+    {
+        let git = state.git_status.lock().unwrap();
+        if let Some(g) = git.as_ref() {
+            return Ok(GitInfo {
+                branch: g.branch(),
+                modified: g.modified_files(),
+                added: g.added_files(),
+            });
+        }
+    }
+    // 根目录不是仓库时，回退到第一个子仓库（多仓工作区）
+    let first = state.git_repos.lock().unwrap().first().cloned();
+    match first {
+        Some(root) => {
+            let g = GitStatus::open(&root).map_err(|e| e.to_string())?;
+            Ok(GitInfo {
+                branch: g.branch(),
+                modified: g.modified_files(),
+                added: g.added_files(),
+            })
+        }
         None => Err("No git repository".to_string()),
     }
 }
