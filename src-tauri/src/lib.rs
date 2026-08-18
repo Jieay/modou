@@ -32,6 +32,8 @@ pub fn run() {
             write_terminal,
             resize_terminal,
             get_git_status,
+            get_git_changes,
+            diff_lines,
             list_terminal_providers,
             check_accessibility_permission,
             request_accessibility_permission,

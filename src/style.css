@@ -241,6 +241,59 @@ body {
     background: var(--accent);
 }
 
+/* Git 变更徽章（文件树） */
+.tree-item.git-M {
+    color: #e2c08d;
+}
+
+.tree-item.git-A {
+    color: #73c991;
+}
+
+.tree-item.git-dir-changed {
+    color: #e2c08d;
+}
+
+.tree-item .git-badge {
+    margin-left: auto;
+    padding-left: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.tree-item.git-M .git-badge {
+    color: #e2c08d;
+}
+
+.tree-item.git-A .git-badge {
+    color: #73c991;
+}
+
+/* 编辑器 gutter 行级变更标记 */
+.diff-glyph-added {
+    background: #2ea043;
+    width: 4px !important;
+    margin-left: 2px;
+}
+
+.diff-glyph-modified {
+    background: #0078d4;
+    width: 4px !important;
+    margin-left: 2px;
+}
+
+.diff-glyph-deleted {
+    width: 0;
+    height: 0;
+    margin-left: 2px;
+    margin-top: 6px;
+    background: transparent;
+    border-left: 6px solid #f85149;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+}
+
 /* 文件树内联重命名输入框 */
 .tree-rename-input {
     background: var(--bg-input);

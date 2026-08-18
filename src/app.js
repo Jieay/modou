@@ -61,6 +61,10 @@
        awaitingMaxTabs: false,
        fileClipboard: null,
        expandedDirs: new Set(),
+       gitChanges: {},
+       gitChangedDirs: new Set(),
+       diffDecos: null,
+       diffTimer: null,
    };
 
    // DOM 元素缓存
@@ -331,7 +335,7 @@
                state.projectRoot = session.projectRoot;
                state.fileTree = nodes || [];
                renderFileTree(state.fileTree);
-               updateGitStatus();
+               refreshGit();
                updateProjectSwitcher();
                updateWindowTitle();
 
@@ -537,6 +541,7 @@
                     invoke('open_project', { path: state.projectRoot }).then(function(nodes) {
                         state.fileTree = nodes || [];
                         renderFileTree(state.fileTree);
+                        refreshGit();
                         updateStatus('已刷新');
                     }).catch(function(e) {
                         updateStatus('刷新失败: ' + e);
@@ -793,6 +798,7 @@
                         lineNumbers: 'on',
                         minimap: { enabled: false },
                         automaticLayout: true,
+                        glyphMargin: true,
                         tabSize: 4,
                         insertSpaces: true,
                         padding: { top: 8, bottom: 8 },
@@ -813,6 +819,9 @@
                             state.openTabs[state.activeTabIndex].content = state.monacoEditor.getValue();
                             renderTabs();
                         }
+                        // 防抖更新行级 git 变更标记
+                        clearTimeout(state.diffTimer);
+                        state.diffTimer = setTimeout(updateDiffDecorations, 300);
                     });
 
                     // 若已有打开的标签（例如恢复了上次会话），切到 Monaco 渲染
@@ -905,7 +914,7 @@
             state.projectRoot = path;
             state.fileTree = nodes || [];
             renderFileTree(state.fileTree);
-            updateGitStatus();
+            refreshGit();
             updateStatus('项目已打开');
             updateProjectSwitcher();
             updateWindowTitle();
@@ -1000,6 +1009,11 @@
                 name.textContent = node.name;
                 item.appendChild(name);
 
+                // 目录含变更时名称着色
+                if (state.gitChangedDirs.has(node.path)) {
+                    item.classList.add('git-dir-changed');
+                }
+
                 var childrenContainer = document.createElement('div');
                 childrenContainer.className = 'tree-children';
                 // 归属虚线对齐到父节点 chevron 中心
@@ -1086,6 +1100,16 @@
                 name.textContent = node.name;
                 item.appendChild(name);
 
+                // git 变更徽章（M=修改 / A=新增）
+                var gitSt = state.gitChanges[node.path];
+                if (gitSt) {
+                    item.classList.add('git-' + gitSt);
+                    var badge = document.createElement('span');
+                    badge.className = 'git-badge';
+                    badge.textContent = gitSt;
+                    item.appendChild(badge);
+                }
+
                 item.addEventListener('click', function() {
                     // 选中态跟随点击（清除双击标签定位等其他来源的高亮）
                     document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
@@ -1150,6 +1174,7 @@
         invoke('list_dir', { path: path }).then(function(children) {
             container.innerHTML = '';
             renderFileTree(children || [], container, depth);
+            refreshGit();
         }).catch(function(e) {
             updateStatus('刷新文件树失败: ' + e);
         });
@@ -1162,6 +1187,7 @@
             node.loaded = true;
             childrenContainer.innerHTML = '';
             renderFileTree(node.children, childrenContainer, depth + 1);
+            refreshGit();
         }).catch(function(e) {
             updateStatus('刷新文件树失败: ' + e);
         });
@@ -1863,6 +1889,35 @@
             elements['file-language'].style.display = 'flex';
             elements['file-language'].textContent = tab.language;
         }
+
+        // 行级 git 变更标记
+        updateDiffDecorations();
+    }
+
+    // 行级 git 变更标记（编辑器 gutter：新增绿条 / 修改蓝条 / 删除红三角）
+    function updateDiffDecorations() {
+        if (!state.monacoEditor || !state.monacoLoaded) return;
+        var tab = state.openTabs[state.activeTabIndex];
+        if (!tab || tab.isImage) {
+            if (state.diffDecos) state.diffDecos.set([]);
+            return;
+        }
+        invoke('diff_lines', { path: tab.path, content: tab.content }).then(function(d) {
+            // 响应到达时可能已切换标签，仅对同一标签应用
+            if (state.openTabs[state.activeTabIndex] !== tab) return;
+            if (!state.diffDecos) state.diffDecos = state.monacoEditor.createDecorationsCollection();
+            var decos = [];
+            (d.added || []).forEach(function(r) {
+                decos.push({ range: new monaco.Range(r[0], 1, r[1], 1), options: { isWholeLine: false, glyphMarginClassName: 'diff-glyph-added' } });
+            });
+            (d.modified || []).forEach(function(r) {
+                decos.push({ range: new monaco.Range(r[0], 1, r[1], 1), options: { isWholeLine: false, glyphMarginClassName: 'diff-glyph-modified' } });
+            });
+            (d.deleted || []).forEach(function(l) {
+                decos.push({ range: new monaco.Range(l, 1, l, 1), options: { isWholeLine: false, glyphMarginClassName: 'diff-glyph-deleted' } });
+            });
+            state.diffDecos.set(decos);
+        }).catch(function() {});
     }
 
     // 渲染图片预览（asset 协议读取，经一次 fetch 同时获得尺寸与大小）
@@ -1921,9 +1976,44 @@
             tab.content = content;
             renderTabs();
             updateStatus('已保存');
+            // 保存后刷新变更徽章与行级标记
+            refreshGit();
+            updateDiffDecorations();
         }).catch(function(e) {
             updateStatus('保存失败: ' + e);
         });
+    }
+
+    // 刷新 git 状态（状态栏 + 文件树变更徽章）
+    function refreshGit() {
+        updateGitStatus();
+        updateGitChanges();
+    }
+
+    // 拉取完整变更状态表并应用到文件树（M/A 徽章、目录着色）
+    function updateGitChanges() {
+        invoke('get_git_changes').then(function(list) {
+            var map = {};
+            var dirs = new Set();
+            (list || []).forEach(function(c) {
+                map[c.path] = c.status;
+                if (state.projectRoot) {
+                    var dir = c.path.substring(0, c.path.lastIndexOf('/'));
+                    while (dir.length > state.projectRoot.length) {
+                        dirs.add(dir);
+                        dir = dir.substring(0, dir.lastIndexOf('/'));
+                    }
+                }
+            });
+            state.gitChanges = map;
+            state.gitChangedDirs = dirs;
+            // 保持滚动位置重绘树以应用徽章（展开状态由 expandedDirs 保持）
+            var tree = elements['file-tree'];
+            var scrollTop = tree ? tree.scrollTop : 0;
+            renderFileTree(state.fileTree);
+            if (tree) tree.scrollTop = scrollTop;
+            syncTreeSelectionToActiveTab();
+        }).catch(function() {});
     }
 
     // 更新 Git 状态

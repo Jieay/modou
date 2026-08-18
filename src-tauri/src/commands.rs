@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::State;
 use tauri::Manager;
@@ -200,6 +200,27 @@ pub async fn copy_path(src_path: String, dst_path: String) -> Result<(), String>
         return Err("目标路径已存在".to_string());
     }
     copy_recursive(&src, &dst).map_err(|e| e.to_string())
+}
+
+/// 完整的 git 变更状态表（文件树徽章用，绝对路径）
+#[tauri::command]
+pub async fn get_git_changes(state: State<'_, AppState>) -> Result<Vec<crate::fs::FileChange>, String> {
+    let guard = state.git_status.lock().unwrap();
+    Ok(guard.as_ref().map(|g| g.changes()).unwrap_or_default())
+}
+
+/// 当前编辑内容与 HEAD 的行级差异（编辑器 gutter 用）
+#[tauri::command]
+pub async fn diff_lines(
+    path: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> Result<crate::fs::LineDiff, String> {
+    let guard = state.git_status.lock().unwrap();
+    Ok(match guard.as_ref() {
+        Some(g) => g.diff_lines(Path::new(&path), &content),
+        None => crate::fs::LineDiff::default(),
+    })
 }
 
 #[tauri::command]
