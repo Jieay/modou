@@ -27,7 +27,7 @@ tauri-plugin-dialog = "2"
 rustix = { version = "0.38", features = ["pty", "process", "termios"] }
 rustix-openpty = "0.1"
 libc = "0.2"
-git2 = "0.19"
+git2 = "0.21"
 notify = "6"
 
 toml = "0.8"
