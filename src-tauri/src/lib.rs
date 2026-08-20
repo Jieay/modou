@@ -21,6 +21,7 @@ pub fn run() {
             list_dir,
             read_file,
             save_file,
+            set_watched_files,
             rename_path,
             create_file,
             create_dir,
@@ -46,6 +47,7 @@ pub fn run() {
             get_dock_session,
             save_session,
             load_session,
+            take_pending_open,
             recent::add_recent_project,
             recent::get_recent_projects,
             recent::remove_recent_project,
@@ -112,6 +114,12 @@ pub fn run() {
                 if let Some(ref dock) = guard.as_ref() {
                    dock.send(dock_manager::DockCmd::Shutdown);
                }
+           }
+           if let tauri::WindowEvent::Destroyed = event {
+                // 窗口销毁后清理其项目状态，避免「已打开项目」误判到已关闭窗口
+                let app = window.app_handle();
+                let state = app.state::<AppState>();
+                commands::remove_window_state(&state, window.label());
            }
        })
         .run(tauri::generate_context!())

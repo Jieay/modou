@@ -1,19 +1,35 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri::WebviewWindow;
 
 use crate::fs::{FileTree, GitStatus};
 use crate::terminal::TerminalManager;
+use notify::Watcher as _;
+
+/// 单个窗口的项目状态（多窗口各自独立，互不覆盖）
+#[derive(Default)]
+pub struct WindowProjectState {
+    pub project_root: Option<PathBuf>,
+    pub file_tree: Option<FileTree>,
+    pub git_status: Option<GitStatus>,
+    /// 项目内的 git 仓库根目录列表（多仓工作区：根目录不是仓库时收集子仓库）
+    pub git_repos: Vec<PathBuf>,
+    /// 已打开文件的外部变更监听器（终端/AI 修改磁盘文件后通知前端刷新）
+    pub file_watcher: Option<notify::RecommendedWatcher>,
+    /// 监听路径（含 canonicalize 变体）-> 前端注册的原始路径
+    pub watched_files: Arc<Mutex<HashMap<PathBuf, String>>>,
+}
 
 pub struct AppState {
-    pub project_root: Mutex<Option<PathBuf>>,
-    pub file_tree: Mutex<Option<FileTree>>,
+    /// 窗口 label -> 该窗口打开的项目状态
+    pub windows: Mutex<HashMap<String, WindowProjectState>>,
+    /// 窗口 label -> 窗口加载完成后待打开的项目路径（Dock 菜单打开最近项目用）
+    pub pending_open: Mutex<HashMap<String, String>>,
     pub terminal_manager: Mutex<TerminalManager>,
-    pub git_status: Mutex<Option<GitStatus>>,
-    /// 项目内的 git 仓库根目录列表（多仓工作区：根目录不是仓库时收集子仓库）
-    pub git_repos: Mutex<Vec<PathBuf>>,
     pub dock_manager: Mutex<Option<crate::dock_manager::DockManager>>,
     pub settings: Mutex<crate::settings::TerminalSettings>,
 }
@@ -21,15 +37,25 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            project_root: Mutex::new(None),
-            file_tree: Mutex::new(None),
+            windows: Mutex::new(HashMap::new()),
+            pending_open: Mutex::new(HashMap::new()),
             terminal_manager: Mutex::new(TerminalManager::new()),
-            git_status: Mutex::new(None),
-            git_repos: Mutex::new(Vec::new()),
             dock_manager: Mutex::new(None),
             settings: Mutex::new(crate::settings::TerminalSettings::default()),
         }
     }
+}
+
+/// 窗口关闭时清理其项目状态与待打开记录
+pub fn remove_window_state(state: &AppState, label: &str) {
+    state.windows.lock().unwrap().remove(label);
+    state.pending_open.lock().unwrap().remove(label);
+}
+
+/// 窗口启动时取走待打开的项目路径（仅新窗口有值，取走即删）
+#[tauri::command]
+pub fn take_pending_open(window: WebviewWindow, state: State<'_, AppState>) -> Option<String> {
+    state.pending_open.lock().unwrap().remove(window.label())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +90,7 @@ pub struct GitInfo {
 #[tauri::command]
 pub async fn open_project(
     path: String,
+    window: WebviewWindow,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<FileNode>, String> {
@@ -94,10 +121,12 @@ pub async fn open_project(
         }
     }
 
-    *state.project_root.lock().unwrap() = Some(path.clone());
-    *state.file_tree.lock().unwrap() = Some(tree);
-    *state.git_status.lock().unwrap() = git;
-    *state.git_repos.lock().unwrap() = repos;
+    let mut windows = state.windows.lock().unwrap();
+    let ws = windows.entry(window.label().to_string()).or_default();
+    ws.project_root = Some(path.clone());
+    ws.file_tree = Some(tree);
+    ws.git_status = git;
+    ws.git_repos = repos;
 
     Ok(nodes)
 }
@@ -143,6 +172,104 @@ pub async fn read_file(path: String) -> Result<FileContent, String> {
 #[tauri::command]
 pub async fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// 已打开文件外部变更事件 payload（前端按 window label 过滤 + path 匹配标签）
+#[derive(Debug, Clone, Serialize)]
+pub struct FileChangedPayload {
+    pub window: String,
+    pub path: String,
+    /// "modified" | "removed"
+    pub kind: String,
+}
+
+/// 设置当前窗口需要监听的已打开文件列表（整体替换，幂等）。
+/// 终端/AI 助手等外部进程修改磁盘文件后，向该窗口发送 file:changed 事件。
+#[tauri::command]
+pub fn set_watched_files(
+    paths: Vec<String>,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    let mut windows = state.windows.lock().unwrap();
+    let ws = windows.entry(label.clone()).or_default();
+
+    // 首次调用时创建 watcher。回调内按 watched_files 反查前端注册路径，
+    // 避免 macOS 下符号链接（如 /tmp -> /private/tmp）导致事件路径与注册路径不一致
+    if ws.file_watcher.is_none() {
+        let watched = ws.watched_files.clone();
+        let app_handle = app.clone();
+        let win_label = label.clone();
+        let watcher = notify::recommended_watcher(
+            move |res: Result<notify::Event, notify::Error>| {
+                let event = match res {
+                    Ok(e) => e,
+                    Err(_) => return,
+                };
+                let kind = match event.kind {
+                    // Create 覆盖原子保存（写临时文件再改名）场景
+                    notify::EventKind::Modify(_) | notify::EventKind::Create(_) => "modified",
+                    notify::EventKind::Remove(_) => "removed",
+                    _ => return,
+                };
+                for p in &event.paths {
+                    let frontend_path = {
+                        let map = watched.lock().unwrap();
+                        map.get(p).cloned().or_else(|| {
+                            std::fs::canonicalize(p)
+                                .ok()
+                                .and_then(|c| map.get(&c).cloned())
+                        })
+                    };
+                    if let Some(path) = frontend_path {
+                        let _ = app_handle.emit_to(
+                            &win_label,
+                            "file:changed",
+                            FileChangedPayload {
+                                window: win_label.clone(),
+                                path,
+                                kind: kind.to_string(),
+                            },
+                        );
+                    }
+                }
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        ws.file_watcher = Some(watcher);
+    }
+
+    // 目标集合：同时登记原始路径与 canonicalize 后的路径（均映射回前端路径）
+    let mut new_map: HashMap<PathBuf, String> = HashMap::new();
+    for p in &paths {
+        let pb = PathBuf::from(p);
+        new_map.insert(pb.clone(), p.clone());
+        if let Ok(c) = std::fs::canonicalize(&pb) {
+            new_map.insert(c, p.clone());
+        }
+    }
+
+    let watcher = ws.file_watcher.as_mut().unwrap();
+    let mut watched = ws.watched_files.lock().unwrap();
+
+    // 移除不再打开的文件
+    let old_keys: Vec<PathBuf> = watched.keys().cloned().collect();
+    for key in old_keys {
+        if !new_map.contains_key(&key) {
+            let _ = watcher.unwatch(&key);
+            watched.remove(&key);
+        }
+    }
+    // 注册新增文件（文件可能暂不存在，忽略错误）
+    for (key, frontend_path) in &new_map {
+        if !watched.contains_key(key) && watcher.watch(key, notify::RecursiveMode::NonRecursive).is_ok() {
+            watched.insert(key.clone(), frontend_path.clone());
+        }
+    }
+
+    Ok(())
 }
 
 /// 重命名文件或文件夹（同目录下改名，拒绝覆盖已存在路径）
@@ -222,8 +349,17 @@ pub async fn copy_path(src_path: String, dst_path: String) -> Result<(), String>
 
 /// 完整的 git 变更状态表（文件树徽章用，绝对路径；聚合项目内所有仓库）
 #[tauri::command]
-pub async fn get_git_changes(state: State<'_, AppState>) -> Result<Vec<crate::fs::FileChange>, String> {
-    let repos = state.git_repos.lock().unwrap().clone();
+pub async fn get_git_changes(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::fs::FileChange>, String> {
+    let repos = {
+        let windows = state.windows.lock().unwrap();
+        windows
+            .get(window.label())
+            .map(|ws| ws.git_repos.clone())
+            .unwrap_or_default()
+    };
     let mut out = Vec::new();
     for root in repos {
         if let Ok(g) = GitStatus::open(&root) {
@@ -238,6 +374,7 @@ pub async fn get_git_changes(state: State<'_, AppState>) -> Result<Vec<crate::fs
 pub async fn diff_lines(
     path: String,
     content: String,
+    window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<crate::fs::LineDiff, String> {
     let p = Path::new(&path);
@@ -247,8 +384,8 @@ pub async fn diff_lines(
         Ok(g) => Ok(g.diff_lines(p, &content)),
         Err(_) => {
             // 回退到打开项目时的主仓库（兼容旧路径）
-            let guard = state.git_status.lock().unwrap();
-            Ok(match guard.as_ref() {
+            let windows = state.windows.lock().unwrap();
+            Ok(match windows.get(window.label()).and_then(|ws| ws.git_status.as_ref()) {
                 Some(g) => g.diff_lines(p, &content),
                 None => crate::fs::LineDiff::default(),
             })
@@ -257,9 +394,12 @@ pub async fn diff_lines(
 }
 
 #[tauri::command]
-pub async fn get_file_tree(state: State<'_, AppState>) -> Result<Vec<FileNode>, String> {
-    let tree = state.file_tree.lock().unwrap();
-    match tree.as_ref() {
+pub async fn get_file_tree(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<Vec<FileNode>, String> {
+    let windows = state.windows.lock().unwrap();
+    match windows.get(window.label()).and_then(|ws| ws.file_tree.as_ref()) {
         Some(t) => Ok(t.to_nodes()),
         None => Err("No project opened".to_string()),
     }
@@ -269,17 +409,24 @@ pub async fn get_file_tree(state: State<'_, AppState>) -> Result<Vec<FileNode>, 
 pub async fn create_terminal(
     shell: Option<String>,
     cwd: Option<String>,
+    window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<TerminalInfo, String> {
     let shell = shell.unwrap_or_else(|| {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
     });
 
-    // 优先使用传入 cwd，其次当前打开的项目，最后进程工作目录
+    // 优先使用传入 cwd，其次当前窗口打开的项目，最后进程工作目录
+    let window_root = state
+        .windows
+        .lock()
+        .unwrap()
+        .get(window.label())
+        .and_then(|ws| ws.project_root.clone());
     let cwd = cwd
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
-        .or_else(|| state.project_root.lock().unwrap().clone())
+        .or(window_root)
         .or_else(|| std::env::current_dir().ok());
 
     let mut manager = state.terminal_manager.lock().unwrap();
@@ -320,20 +467,26 @@ pub async fn resize_terminal(
 }
 
 #[tauri::command]
-pub async fn get_git_status(state: State<'_, AppState>) -> Result<GitInfo, String> {
-    {
-        let git = state.git_status.lock().unwrap();
-        if let Some(g) = git.as_ref() {
-            return Ok(GitInfo {
-                branch: g.branch(),
-                modified: g.modified_files(),
-                added: g.added_files(),
-            });
+pub async fn get_git_status(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<GitInfo, String> {
+    let (git_opt, first_repo) = {
+        let windows = state.windows.lock().unwrap();
+        match windows.get(window.label()) {
+            Some(ws) => (
+                // GitStatus 不便克隆，这里只取是否存在的标记
+                ws.git_status.as_ref().map(|g| (g.branch(), g.modified_files(), g.added_files())),
+                ws.git_repos.first().cloned(),
+            ),
+            None => (None, None),
         }
+    };
+    if let Some((branch, modified, added)) = git_opt {
+        return Ok(GitInfo { branch, modified, added });
     }
     // 根目录不是仓库时，回退到第一个子仓库（多仓工作区）
-    let first = state.git_repos.lock().unwrap().first().cloned();
-    match first {
+    match first_repo {
         Some(root) => {
             let g = GitStatus::open(&root).map_err(|e| e.to_string())?;
             Ok(GitInfo {
@@ -464,6 +617,7 @@ pub async fn save_terminal_settings(
 pub async fn start_terminal(
     provider_id: String,
     cwd: Option<String>,
+    window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<crate::dock_manager::DockSessionView, String> {
     // 只在取 sender 时短暂持锁，等待启动结果期间必须释放，
@@ -474,9 +628,15 @@ pub async fn start_terminal(
         dock.sender()
     };
 
+    let window_root = state
+        .windows
+        .lock()
+        .unwrap()
+        .get(window.label())
+        .and_then(|ws| ws.project_root.clone());
     let cwd = match cwd {
         Some(c) => Some(PathBuf::from(c)),
-        None => state.project_root.lock().unwrap().clone(),
+        None => window_root,
     };
 
     // 同步等待工作线程完成启动（osascript + AX 窗口定位）

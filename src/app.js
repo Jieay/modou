@@ -324,8 +324,14 @@
    }
 
    // 恢复上次会话（上次关闭时的项目与文件）；仅主窗口
+   // 非主窗口：检查是否有待打开的项目（Dock 菜单「最近打开」会指定新窗口打开）
    function restoreSession() {
-       if (!isMainWindow) return;
+       if (!isMainWindow) {
+           invoke('take_pending_open').then(function(path) {
+               if (path) loadProject(path);
+           }).catch(function() {});
+           return;
+       }
        invoke('load_session').then(function(session) {
            if (!session || !session.projectRoot) return;
            state.restoring = true;
@@ -388,14 +394,49 @@
        document.addEventListener('contextmenu', hideContextMenu);
 
        // 系统菜单事件（打开文件夹 / 打开最近项目）
-       if (window.__TAURI__ && window.__TAURI__.event) {
-           window.__TAURI__.event.listen('menu:open-folder', function() {
+       // 注意：必须用 getCurrentWebviewWindow().listen 按窗口过滤事件；
+       // 全局 event.listen 会收到发往其他窗口的事件，导致多窗口同时打开同一项目。
+       // 同时校验 payload 中的窗口 label（双保险，防止后端事件定向失效时误打开）
+       var currentWin = null;
+       if (window.__TAURI__ && window.__TAURI__.webviewWindow) {
+           try {
+               currentWin = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+           } catch (e) {}
+       }
+       if (currentWin) {
+           currentWin.listen('menu:open-folder', function(e) {
+               if (e.payload && e.payload !== currentWin.label) return;
                openProject();
            });
-           window.__TAURI__.event.listen('menu:open-project', function(e) {
-               if (e.payload) loadProject(e.payload);
+           currentWin.listen('menu:open-project', function(e) {
+               var p = e.payload;
+               if (!p) return;
+               if (typeof p === 'object') {
+                   if (p.window && p.window !== currentWin.label) return;
+                   p = p.path;
+               }
+               if (p) loadProject(p);
+           });
+           // 已打开文件被外部（终端/AI 助手）修改：防抖后自动刷新
+           currentWin.listen('file:changed', function(e) {
+               var p = e.payload;
+               if (!p || p.window !== currentWin.label) return;
+               if (fileChangeTimers[p.path]) clearTimeout(fileChangeTimers[p.path]);
+               fileChangeTimers[p.path] = setTimeout(function() {
+                   delete fileChangeTimers[p.path];
+                   handleExternalFileChange(p.path, p.kind);
+               }, 300);
            });
        }
+
+       // git 状态自动刷新：窗口重新聚焦时 + 每 30 秒轮询一次
+       // （外部/内置终端执行 git commit 等操作后，树形徽章和状态栏随之更新）
+       window.addEventListener('focus', function() {
+           if (state.projectRoot) refreshGit();
+       });
+       setInterval(function() {
+           if (state.projectRoot && !document.hidden) refreshGit();
+       }, 30000);
 
        // 初始化终端停靠
        dock.init();
@@ -814,6 +855,8 @@
 
                     // 监听内容变化
                     state.monacoEditor.onDidChangeModelContent(function() {
+                        // 外部变更自动刷新的 setValue 是程序化写入，不算用户修改
+                        if (reloadingExternal) return;
                         if (state.activeTabIndex >= 0 && state.openTabs[state.activeTabIndex]) {
                             state.openTabs[state.activeTabIndex].isDirty = true;
                             state.openTabs[state.activeTabIndex].content = state.monacoEditor.getValue();
@@ -1564,6 +1607,7 @@
             renderTabs();
             renderEditor();
             saveSession();
+            syncWatchedFiles();
             return Promise.resolve();
         }
 
@@ -1597,6 +1641,7 @@
             renderEditor();
             updateStatus('文件已加载');
             saveSession();
+            syncWatchedFiles();
         }).catch(function(e) {
             console.error('加载文件失败:', e);
             updateStatus('加载文件失败: ' + e);
@@ -1743,6 +1788,7 @@
         renderTabs();
         syncTreeSelectionToActiveTab();
         saveSession();
+        syncWatchedFiles();
     }
 
     // 关闭除指定标签外的所有标签
@@ -1755,6 +1801,7 @@
         renderEditor();
         syncTreeSelectionToActiveTab();
         saveSession();
+        syncWatchedFiles();
     }
 
     // 关闭所有标签
@@ -1767,6 +1814,7 @@
         renderTabs();
         syncTreeSelectionToActiveTab();
         saveSession();
+        syncWatchedFiles();
     }
 
     // 通用右键菜单（标签栏 / 文件树共用）
@@ -1963,6 +2011,61 @@
         return (bytes / 1024 / 1024).toFixed(2) + ' MB';
     }
 
+    // 已打开文件的外部变更处理（终端/AI 助手修改磁盘文件后自动刷新）
+    var fileChangeTimers = {};
+    // 外部刷新进行中标记：setValue 触发的内容变化不算用户修改（不标脏）
+    var reloadingExternal = false;
+    // 自己保存写入的时间戳（path -> ms），用于忽略自身保存触发的 watcher 事件
+    var recentSelfSaves = {};
+
+    // 将当前打开的文件列表同步给后端 watcher（整体替换，幂等）
+    function syncWatchedFiles() {
+        if (!window.__TAURI__) return;
+        var paths = state.openTabs.map(function(t) { return t.path; });
+        invoke('set_watched_files', { paths: paths }).catch(function() {});
+    }
+
+    function handleExternalFileChange(path, kind) {
+        // 自己保存触发的事件忽略（防抖 300ms + 事件延迟，2s 窗口足够）
+        if (recentSelfSaves[path] && Date.now() - recentSelfSaves[path] < 2000) return;
+
+        var index = state.openTabs.findIndex(function(t) { return t.path === path; });
+        if (index < 0) return;
+        var tab = state.openTabs[index];
+
+        if (kind === 'removed') {
+            updateStatus('「' + tab.name + '」已在磁盘上被删除');
+            return;
+        }
+        // 有未保存修改时不覆盖，仅提示
+        if (tab.isDirty) {
+            updateStatus('「' + tab.name + '」已在磁盘上被修改，当前有未保存的修改，未自动刷新');
+            return;
+        }
+        if (tab.isImage) {
+            if (index === state.activeTabIndex) renderEditor();
+            return;
+        }
+        invoke('read_file', { path: path }).then(function(file) {
+            // 响应到达时标签可能已关闭
+            if (state.openTabs[index] !== tab) return;
+            tab.content = file.content;
+            if (index === state.activeTabIndex && state.monacoEditor) {
+                // 保持光标与滚动位置，仅替换文本
+                var viewState = state.monacoEditor.saveViewState();
+                var model = state.monacoEditor.getModel();
+                reloadingExternal = true;
+                if (model) model.setValue(file.content);
+                reloadingExternal = false;
+                state.monacoEditor.restoreViewState(viewState);
+                updateDiffDecorations();
+            }
+            updateStatus('「' + tab.name + '」已重新加载（外部修改）');
+            // 原子保存（写临时文件再改名）后原 watch 可能失效，重新注册
+            syncWatchedFiles();
+        }).catch(function() {});
+    }
+
     // 保存当前文件
     function saveCurrentFile() {
         if (state.activeTabIndex < 0) return;
@@ -1971,6 +2074,8 @@
         if (!tab || tab.isImage) return;
         var content = state.monacoEditor ? state.monacoEditor.getValue() : tab.content;
 
+        // 记录自己保存的时间，watcher 事件据此忽略自身写入
+        recentSelfSaves[tab.path] = Date.now();
         invoke('save_file', { path: tab.path, content: content }).then(function() {
             tab.isDirty = false;
             tab.content = content;

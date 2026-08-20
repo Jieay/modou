@@ -188,10 +188,12 @@ pub fn on_menu_event(app: &AppHandle, id: &str) {
     match id {
         "modou.open_folder" => {
             if let Some(w) = focused_window(app) {
-                let _ = w.emit("menu:open-folder", ());
+                // emit_to 定向发送 + payload 携带窗口 label 供前端二次校验；
+                // 注意 WebviewWindow::emit 在 Tauri v2 是广播（无目标过滤），多窗口下不能用
+                let _ = app.emit_to(w.label(), "menu:open-folder", w.label().to_string());
             }
         }
-        "modou.new_window" => new_window(app),
+        "modou.new_window" => new_window(app, None),
         "modou.recent.clear" => clear(app),
         "modou.close_window" => {
             if let Some(w) = focused_window(app) {
@@ -201,9 +203,18 @@ pub fn on_menu_event(app: &AppHandle, id: &str) {
         _ => {
             if let Some(rest) = id.strip_prefix("modou.recent.") {
                 if let Ok(i) = rest.parse::<usize>() {
-                    let path = list().get(i).cloned();
-                    if let (Some(w), Some(p)) = (focused_window(app), path) {
-                        let _ = w.emit("menu:open-project", p);
+                    if let Some(p) = list().get(i).cloned() {
+                        // 已有窗口打开该项目则直接置前，否则在焦点窗口中打开
+                        if !focus_window_with_project(app, &p) {
+                            if let Some(w) = focused_window(app) {
+                                // 定向发送到焦点窗口，payload 带窗口 label 供前端校验
+                                let _ = app.emit_to(
+                                    w.label(),
+                                    "menu:open-project",
+                                    serde_json::json!({ "window": w.label(), "path": p }),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -219,15 +230,34 @@ fn focused_window(app: &AppHandle) -> Option<WebviewWindow> {
         .or_else(|| app.get_webview_window("main"))
 }
 
-/// 在焦点窗口中打开指定路径的项目（菜单 / Dock 最近打开共用）
-fn open_path_in_focused_window(app: &AppHandle, path: &str) {
-    if let Some(w) = focused_window(app) {
-        let _ = w.emit("menu:open-project", path.to_string());
+/// 已有窗口打开了该项目则置前并返回 true（路径按去掉末尾斜杠后比较）
+pub fn focus_window_with_project(app: &AppHandle, path: &str) -> bool {
+    let target = path.trim_end_matches('/');
+    let label = {
+        let state = app.state::<crate::commands::AppState>();
+        let windows = state.windows.lock().unwrap();
+        windows
+            .iter()
+            .find(|(_, ws)| {
+                ws.project_root
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().trim_end_matches('/') == target)
+                    .unwrap_or(false)
+            })
+            .map(|(l, _)| l.clone())
+    };
+    if let Some(label) = label {
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+            return true;
+        }
     }
+    false
 }
 
-/// 新建窗口
-pub fn new_window(app: &AppHandle) {
+/// 新建窗口；指定 path 时窗口加载完成后自动打开该项目
+pub fn new_window(app: &AppHandle, path: Option<String>) {
     let label = format!(
         "modou-{}",
         std::time::SystemTime::now()
@@ -235,7 +265,11 @@ pub fn new_window(app: &AppHandle) {
             .map(|d| d.as_millis())
             .unwrap_or(0)
     );
-    let _ = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+    if let Some(p) = path {
+        let state = app.state::<crate::commands::AppState>();
+        state.pending_open.lock().unwrap().insert(label.clone(), p);
+    }
+    let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title("墨斗")
         .inner_size(1400.0, 900.0)
         .min_inner_size(900.0, 600.0)
@@ -250,7 +284,7 @@ pub fn new_window(app: &AppHandle) {
 /// 原有行为），附加 `applicationDockMenu:` 方法，每次右键时动态构建菜单。
 #[cfg(target_os = "macos")]
 pub mod dock {
-    use super::{display_name, list, new_window, open_path_in_focused_window, APP_HANDLE};
+    use super::{display_name, focus_window_with_project, list, new_window, APP_HANDLE};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use objc2::rc::Retained;
@@ -269,7 +303,7 @@ pub mod dock {
             #[unsafe(method(modouNewWindow:))]
             fn modou_new_window(&self, _sender: &NSMenuItem) {
                 if let Some(app) = APP_HANDLE.get() {
-                    new_window(app);
+                    new_window(app, None);
                 }
             }
 
@@ -278,7 +312,11 @@ pub mod dock {
                 let Some(obj) = sender.representedObject() else { return };
                 let Ok(path) = obj.downcast::<NSString>() else { return };
                 let Some(app) = APP_HANDLE.get() else { return };
-                open_path_in_focused_window(app, &path.to_string());
+                let path = path.to_string();
+                // 已有窗口打开该项目则置前，否则在新窗口中打开（不改动当前窗口）
+                if !focus_window_with_project(app, &path) {
+                    new_window(app, Some(path));
+                }
             }
         }
     );
