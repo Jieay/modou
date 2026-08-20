@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.2.2"
+version = "0.2.3"
 description = "墨斗（Modou）：轻量代码编辑器 + 原生终端工具"
 authors = ["zhufeng"]
 license = "MIT"
@@ -28,6 +28,7 @@ rustix = { version = "0.38", features = ["pty", "process", "termios"] }
 rustix-openpty = "0.1"
 libc = "0.2"
 git2 = "0.19"
+notify = "6"
 
 toml = "0.8"
 core-foundation = "0.10"
