@@ -28,7 +28,7 @@ rustix = { version = "0.38", features = ["pty", "process", "termios"] }
 rustix-openpty = "0.1"
 libc = "0.2"
 git2 = "0.19"
-notify = "6"
+notify = "8"
 
 toml = "0.8"
 core-foundation = "0.10"
