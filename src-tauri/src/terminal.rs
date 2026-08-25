@@ -13,6 +13,32 @@ pub struct Terminal {
     pub master: std::fs::File,
     pub child: Child,
     pub size: Winsize,
+    /// 跨次读取时未完成的 UTF-8 字节残片（避免 from_utf8_lossy 把中文等多字节字符切碎成乱码）
+    read_pending: Vec<u8>,
+}
+
+/// 取系统默认语言对应的 UTF-8 locale（如 zh_CN -> zh_CN.UTF-8），失败退回 en_US.UTF-8
+fn default_utf8_locale() -> String {
+    use std::sync::OnceLock;
+    static LOCALE: OnceLock<String> = OnceLock::new();
+    LOCALE
+        .get_or_init(|| {
+            if let Ok(out) = std::process::Command::new("defaults")
+                .args(["read", "-g", "AppleLocale"])
+                .output()
+            {
+                let loc = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !loc.is_empty()
+                    && loc
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                {
+                    return format!("{}.UTF-8", loc);
+                }
+            }
+            "en_US.UTF-8".to_string()
+        })
+        .clone()
 }
 
 pub struct TerminalManager {
@@ -45,6 +71,12 @@ impl TerminalManager {
         let mut cmd = Command::new(shell);
         cmd.env("TERM", "xterm-256color")
             .env("COLORTERM", "truecolor");
+        // GUI 启动的应用没有 shell 环境的 locale 变量，未设置时补齐 UTF-8 locale；
+        // 否则 C locale 下 ls 等工具把中文文件名显示为 ? / 转义序列
+        if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
+            let locale = default_utf8_locale();
+            cmd.env("LANG", &locale).env("LC_CTYPE", &locale);
+        }
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
         }
@@ -94,6 +126,7 @@ impl TerminalManager {
                 master: master_file,
                 child,
                 size,
+                read_pending: Vec::new(),
             },
         );
 
@@ -118,7 +151,24 @@ impl TerminalManager {
 
         let mut buf = [0u8; 4096];
         match term.master.read(&mut buf) {
-            Ok(n) if n > 0 => Ok(String::from_utf8_lossy(&buf[..n]).to_string()),
+            Ok(n) if n > 0 => {
+                term.read_pending.extend_from_slice(&buf[..n]);
+                let pending = std::mem::take(&mut term.read_pending);
+                match std::str::from_utf8(&pending) {
+                    Ok(s) => Ok(s.to_string()),
+                    Err(e) if e.error_len().is_none() => {
+                        // 末尾是未完成的多字节序列：先输出完整部分，残片留到下次读取拼接
+                        let valid = e.valid_up_to();
+                        let out = String::from_utf8_lossy(&pending[..valid]).to_string();
+                        term.read_pending = pending[valid..].to_vec();
+                        Ok(out)
+                    }
+                    Err(_) => {
+                        // 含真正的非法字节：整体按 lossy 输出，丢弃缓存
+                        Ok(String::from_utf8_lossy(&pending).to_string())
+                    }
+                }
+            }
             _ => Ok(String::new()),
         }
     }
