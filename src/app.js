@@ -555,6 +555,11 @@
         // 文件树空白区域作为放置目标：拖到空白处 = 移动到项目根目录
         var fileTreeEl = elements['file-tree'];
         if (fileTreeEl) {
+            // WebKit 要求 dragenter 和 dragover 都取消默认行为才允许 drop
+            fileTreeEl.addEventListener('dragenter', function(e) {
+                if (!state.projectRoot || validMoveTargets(state.projectRoot).length === 0) return;
+                e.preventDefault();
+            });
             fileTreeEl.addEventListener('dragover', function(e) {
                 if (!state.projectRoot || validMoveTargets(state.projectRoot).length === 0) return;
                 e.preventDefault();
@@ -1396,6 +1401,8 @@
                 endTreeEdit();
                 refreshTreeByPath(parentPath);
                 updateStatus('已创建: ' + name);
+                // 新建文件后直接打开（与 VS Code 一致）
+                if (!isDir) openFile(parentPath + '/' + name);
             }).catch(function(e) {
                 cleanup();
                 endTreeEdit();
@@ -1777,6 +1784,13 @@
             });
         });
         var targetDir = node.is_dir ? node.path : parentPathOf(node.path);
+        // WebKit 要求 dragenter 和 dragover 都取消默认行为才允许 drop，缺一不可
+        item.addEventListener('dragenter', function(e) {
+            if (validMoveTargets(targetDir).length === 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            item.classList.add('drop-target');
+        });
         item.addEventListener('dragover', function(e) {
             if (validMoveTargets(targetDir).length === 0) return;
             e.preventDefault();
