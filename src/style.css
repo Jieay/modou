@@ -341,6 +341,13 @@ body {
     color: var(--fg-active);
 }
 
+/* 拖拽移动时的放置目标高亮 */
+.tree-item.drop-target {
+    background: var(--bg-selected);
+    outline: 1px dashed var(--fg-active);
+    outline-offset: -1px;
+}
+
 .tree-item .icon {
     width: 16px;
     margin-right: 4px;
