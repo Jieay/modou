@@ -1677,6 +1677,8 @@
     // 树节点点击选择：普通点击单选，Cmd/Ctrl+点击切换多选，Shift+点击范围选。
     // 返回 'multi' 表示多选操作（调用方不应再触发打开/展开行为）
     function handleTreeSelect(e, node, item) {
+        // 清理可能残留的原生文字选区（Shift+点击会触发浏览器文本选择，与高亮选中混叠）
+        if (window.getSelection) window.getSelection().removeAllRanges();
         if (e.metaKey || e.ctrlKey) {
             if (state.treeSelPaths.has(node.path)) {
                 state.treeSelPaths.delete(node.path);
@@ -1765,6 +1767,10 @@
     // 给树节点挂拖拽源与放置目标事件（文件/文件夹通用；放置目标：目录为自身，文件为父目录）
     function attachTreeDnD(item, node) {
         item.draggable = true;
+        // Shift+按下时阻止浏览器默认的文本选择（选区会残留在文件名上）
+        item.addEventListener('mousedown', function(e) {
+            if (e.shiftKey) e.preventDefault();
+        });
         item.addEventListener('dragstart', function(e) {
             // 拖拽多选中的项则移动整个选择，否则只移动该项并选中它
             if (!state.treeSelPaths.has(node.path)) {
@@ -1781,6 +1787,7 @@
         });
         item.addEventListener('dragend', function() {
             dragPaths = [];
+            if (window.getSelection) window.getSelection().removeAllRanges();
             document.querySelectorAll('#file-tree .tree-item.drop-target').forEach(function(el) {
                 el.classList.remove('drop-target');
             });

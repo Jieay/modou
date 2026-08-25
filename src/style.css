@@ -328,6 +328,7 @@ body {
     font-size: 13px;
     line-height: 20px;
     color: #cccccc;
+    -webkit-user-select: none;
     user-select: none;
     white-space: nowrap;
 }
