@@ -1030,7 +1030,32 @@
     }
 
     // 渲染文件树
+    // 树内联编辑（新建/重命名）进行中的计数：编辑期间暂停树重绘，
+    // 避免输入框被 innerHTML 清空销毁、blur 误提交未完成的名字
+    var treeEditingCount = 0;
+    var treeRenderPending = false;
+
+    function beginTreeEdit() { treeEditingCount++; }
+
+    function endTreeEdit() {
+        if (treeEditingCount > 0) treeEditingCount--;
+        if (treeEditingCount === 0 && treeRenderPending) {
+            treeRenderPending = false;
+            renderFileTree(state.fileTree);
+        }
+    }
+
+    // 内联编辑期间跳过树重绘（返回 true 表示已推迟，编辑结束后补一次全量渲染）
+    function deferTreeRenderWhileEditing() {
+        if (treeEditingCount > 0) {
+            treeRenderPending = true;
+            return true;
+        }
+        return false;
+    }
+
     function renderFileTree(nodes, container, depth) {
+        if (deferTreeRenderWhileEditing()) return;
         container = container || elements['file-tree'];
         depth = depth || 0;
 
@@ -1228,7 +1253,9 @@
 
     // 重新加载某目录的树节点（path 对应的 container 区域）
     function refreshTreeDir(path, container, depth) {
+        if (deferTreeRenderWhileEditing()) return;
         invoke('list_dir', { path: path }).then(function(children) {
+            if (deferTreeRenderWhileEditing()) return;
             container.innerHTML = '';
             renderFileTree(children || [], container, depth);
             refreshGit();
@@ -1239,7 +1266,9 @@
 
     // 重新加载目录节点的子级（同步 node.children 供后续展开复用）
     function refreshTreeNode(node, childrenContainer, depth) {
+        if (deferTreeRenderWhileEditing()) return;
         invoke('list_dir', { path: node.path }).then(function(children) {
+            if (deferTreeRenderWhileEditing()) return;
             node.children = children || [];
             node.loaded = true;
             childrenContainer.innerHTML = '';
@@ -1279,6 +1308,7 @@
 
         container.insertBefore(item, container.firstChild);
         input.focus();
+        beginTreeEdit();
 
         var finished = false;
         function cleanup() {
@@ -1290,14 +1320,17 @@
             var name = input.value.trim();
             if (!name || name.indexOf('/') >= 0) {
                 cleanup();
+                endTreeEdit();
                 return;
             }
             invoke(isDir ? 'create_dir' : 'create_file', { path: parentPath + '/' + name }).then(function() {
                 cleanup();
+                endTreeEdit();
                 ctx.refreshChildren();
                 updateStatus('已创建: ' + name);
             }).catch(function(e) {
                 cleanup();
+                endTreeEdit();
                 updateStatus('创建失败: ' + e);
             });
         }
@@ -1307,6 +1340,7 @@
             else if (e.key === 'Escape') {
                 finished = true;
                 cleanup();
+                endTreeEdit();
             }
         });
         input.addEventListener('blur', commit);
@@ -1420,12 +1454,14 @@
         // 文件默认选中主名（不含扩展名）
         var dotIndex = node.is_dir ? -1 : node.name.lastIndexOf('.');
         input.setSelectionRange(0, dotIndex > 0 ? dotIndex : node.name.length);
+        beginTreeEdit();
 
         var finished = false;
 
         function restore(newName) {
             if (newName) nameSpan.textContent = newName;
             if (input.parentNode === item) item.replaceChild(nameSpan, input);
+            endTreeEdit();
         }
 
         function commit() {
