@@ -1752,6 +1752,8 @@
         chain.then(function() {
             if (moved > 0) {
                 updateStatus('已移动 ' + moved + ' 项到「' + targetDir.split('/').pop() + '」');
+                // 展开目标目录（折叠状态下移动后文件不可见），让选中的文件露出来
+                if (targetDir !== state.projectRoot) expandDirByPath(targetDir);
             }
             refreshTreeByPath(targetDir);
         }).catch(function(e) {
