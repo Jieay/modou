@@ -427,7 +427,8 @@
                    handleExternalFileChange(p.path, p.kind);
                }, 300);
            });
-           // 目录结构被外部（终端/其他工具）改变：防抖后自动刷新文件树
+           // 目录结构被外部（终端/其他工具）改变：轻量防抖后自动刷新文件树
+           //（Rust 侧已做首事件即达 + 突发合并，这里只合并极近重复事件）
            currentWin.listen('tree:changed', function(e) {
                var p = e.payload;
                if (!p || p.window !== currentWin.label) return;
@@ -435,7 +436,7 @@
                treeChangeTimer = setTimeout(function() {
                    treeChangeTimer = null;
                    if (state.projectRoot) refreshProjectTree();
-               }, 300);
+               }, 100);
            });
        }
 

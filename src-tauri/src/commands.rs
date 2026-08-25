@@ -156,13 +156,24 @@ fn start_dir_watcher(
         let label = win_label.to_string();
         std::thread::spawn(move || {
             while rx.recv().is_ok() {
-                // 等待事件平息（400ms 无新事件）再发一次，合并构建等突发写入
-                while rx.recv_timeout(std::time::Duration::from_millis(400)).is_ok() {}
+                // 首个事件立即通知：创建文件等单次操作即时可见
                 let _ = app_handle.emit_to(
                     &label,
                     "tree:changed",
                     serde_json::json!({ "window": label }),
                 );
+                // 突发写入（构建等）平息 400ms 后补发一次合并通知
+                let mut got_more = false;
+                while rx.recv_timeout(std::time::Duration::from_millis(400)).is_ok() {
+                    got_more = true;
+                }
+                if got_more {
+                    let _ = app_handle.emit_to(
+                        &label,
+                        "tree:changed",
+                        serde_json::json!({ "window": label }),
+                    );
+                }
             }
         });
     }
