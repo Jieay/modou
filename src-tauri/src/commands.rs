@@ -22,6 +22,8 @@ pub struct WindowProjectState {
     pub file_watcher: Option<notify::RecommendedWatcher>,
     /// 监听路径（含 canonicalize 变体）-> 前端注册的原始路径
     pub watched_files: Arc<Mutex<HashMap<PathBuf, String>>>,
+    /// 项目目录递归监听（根路径 + watcher）：终端/外部工具增删文件后通知前端刷新文件树
+    pub dir_watcher: Option<(PathBuf, notify::RecommendedWatcher)>,
 }
 
 pub struct AppState {
@@ -128,7 +130,65 @@ pub async fn open_project(
     ws.git_status = git;
     ws.git_repos = repos;
 
+    // 项目目录递归监听：终端/外部工具增删改文件后通知前端刷新文件树。
+    // 同一项目不重复创建（open_project 兼作整树刷新入口，会被自动刷新反复调用）
+    let already_watching = matches!(&ws.dir_watcher, Some((root, _)) if *root == path);
+    if !already_watching {
+        ws.dir_watcher = start_dir_watcher(&app, window.label(), &path);
+    }
+
     Ok(nodes)
+}
+
+/// 启动项目目录递归监听：增删/改名事件经 400ms 去抖合并后发送 tree:changed。
+/// 去抖线程随 channel 关闭（watcher 被替换/窗口销毁）自动退出。
+fn start_dir_watcher(
+    app: &tauri::AppHandle,
+    win_label: &str,
+    root: &Path,
+) -> Option<(PathBuf, notify::RecommendedWatcher)> {
+    use notify::event::ModifyKind;
+    use notify::{EventKind, RecursiveMode};
+
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    {
+        let app_handle = app.clone();
+        let label = win_label.to_string();
+        std::thread::spawn(move || {
+            while rx.recv().is_ok() {
+                // 等待事件平息（400ms 无新事件）再发一次，合并构建等突发写入
+                while rx.recv_timeout(std::time::Duration::from_millis(400)).is_ok() {}
+                let _ = app_handle.emit_to(
+                    &label,
+                    "tree:changed",
+                    serde_json::json!({ "window": label }),
+                );
+            }
+        });
+    }
+
+    let watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+        let event = match res {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        // 目录结构相关：新增/删除/改名；纯内容修改不影响树（由文件监听负责）
+        let relevant = matches!(
+            event.kind,
+            EventKind::Create(_)
+                | EventKind::Remove(_)
+                | EventKind::Modify(ModifyKind::Name(_))
+                | EventKind::Modify(ModifyKind::Any)
+        );
+        if relevant {
+            let _ = tx.send(());
+        }
+    })
+    .ok()?;
+
+    let mut watcher = watcher;
+    watcher.watch(root, RecursiveMode::Recursive).ok()?;
+    Some((root.to_path_buf(), watcher))
 }
 
 /// 弹出系统目录选择框，返回选中的文件夹路径（取消返回 None）

@@ -427,6 +427,16 @@
                    handleExternalFileChange(p.path, p.kind);
                }, 300);
            });
+           // 目录结构被外部（终端/其他工具）改变：防抖后自动刷新文件树
+           currentWin.listen('tree:changed', function(e) {
+               var p = e.payload;
+               if (!p || p.window !== currentWin.label) return;
+               if (treeChangeTimer) clearTimeout(treeChangeTimer);
+               treeChangeTimer = setTimeout(function() {
+                   treeChangeTimer = null;
+                   if (state.projectRoot) refreshProjectTree();
+               }, 300);
+           });
        }
 
        // git 状态自动刷新：窗口重新聚焦时 + 每 30 秒轮询一次
@@ -471,6 +481,23 @@
     }
 
     // 绑定基础事件
+    // 刷新文件树（手动刷新按钮 & 目录变更事件共用，展开状态由 expandedDirs 保持）
+    function refreshProjectTree() {
+        if (!state.projectRoot) {
+            updateStatus('未打开文件夹');
+            return;
+        }
+        updateStatus('正在刷新...');
+        invoke('open_project', { path: state.projectRoot }).then(function(nodes) {
+            state.fileTree = nodes || [];
+            renderFileTree(state.fileTree);
+            refreshGit();
+            updateStatus('已刷新');
+        }).catch(function(e) {
+            updateStatus('刷新失败: ' + e);
+        });
+    }
+
     function bindBasicEvents() {
         console.log('绑定基础事件...');
 
@@ -576,21 +603,7 @@
         // 刷新文件树
         var btnRefresh = document.getElementById('btn-refresh');
         if (btnRefresh) {
-            btnRefresh.addEventListener('click', function() {
-                if (state.projectRoot) {
-                    updateStatus('正在刷新...');
-                    invoke('open_project', { path: state.projectRoot }).then(function(nodes) {
-                        state.fileTree = nodes || [];
-                        renderFileTree(state.fileTree);
-                        refreshGit();
-                        updateStatus('已刷新');
-                    }).catch(function(e) {
-                        updateStatus('刷新失败: ' + e);
-                    });
-                } else {
-                    updateStatus('未打开文件夹');
-                }
-            });
+            btnRefresh.addEventListener('click', refreshProjectTree);
         }
 
         // 全部折叠
@@ -2013,6 +2026,8 @@
 
     // 已打开文件的外部变更处理（终端/AI 助手修改磁盘文件后自动刷新）
     var fileChangeTimers = {};
+    // 目录变更防抖计时器（tree:changed 事件）
+    var treeChangeTimer = null;
     // 外部刷新进行中标记：setValue 触发的内容变化不算用户修改（不标脏）
     var reloadingExternal = false;
     // 自己保存写入的时间戳（path -> ms），用于忽略自身保存触发的 watcher 事件
