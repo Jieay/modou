@@ -14,6 +14,7 @@
 ### Fixed
 
 - 修复拖拽放置不生效：WebKit 要求 dragenter 和 dragover 都取消默认行为才允许 drop，此前只处理了 dragover 导致无法放置
+- 修复拖拽被系统级接管：Tauri 默认开启 `dragDropEnabled`（用于接收 Finder 拖入文件），会拦截 WebView 内部的 HTML5 拖放，导致文件树拖到目标文件夹无高亮、松手无反应；已关闭（配置文件窗口 + 代码创建的新窗口一致）
 
 ## [0.2.5] - 2026-08-25
 

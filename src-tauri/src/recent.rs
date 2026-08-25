@@ -275,6 +275,9 @@ pub fn new_window(app: &AppHandle, path: Option<String>) {
         .min_inner_size(900.0, 600.0)
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
+        // 与 tauri.conf.json 的 dragDropEnabled:false 一致：
+        // 系统级拖拽接管会干扰 WebView 内部的 HTML5 拖放（文件树拖拽移动）
+        .disable_drag_drop_handler()
         .build();
 }
 
