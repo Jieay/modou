@@ -1035,23 +1035,29 @@
     var treeEditingCount = 0;
     var treeRenderPending = false;
 
-    function beginTreeEdit() { treeEditingCount++; }
+    // 内联编辑或右键菜单打开期间跳过树重绘（返回 true 表示已推迟，结束后补一次全量渲染）。
+    // 否则重绘会销毁输入框（blur 误提交），或让右键菜单捕获的 DOM 引用失效（操作静默无效）
+    function deferTreeRenderWhileEditing() {
+        if (treeEditingCount > 0 || contextMenu) {
+            treeRenderPending = true;
+            return true;
+        }
+        return false;
+    }
 
-    function endTreeEdit() {
-        if (treeEditingCount > 0) treeEditingCount--;
-        if (treeEditingCount === 0 && treeRenderPending) {
+    // 内联编辑结束 / 右键菜单关闭后，补一次被推迟的重绘
+    function flushPendingTreeRender() {
+        if (treeEditingCount === 0 && !contextMenu && treeRenderPending) {
             treeRenderPending = false;
             renderFileTree(state.fileTree);
         }
     }
 
-    // 内联编辑期间跳过树重绘（返回 true 表示已推迟，编辑结束后补一次全量渲染）
-    function deferTreeRenderWhileEditing() {
-        if (treeEditingCount > 0) {
-            treeRenderPending = true;
-            return true;
-        }
-        return false;
+    function beginTreeEdit() { treeEditingCount++; }
+
+    function endTreeEdit() {
+        if (treeEditingCount > 0) treeEditingCount--;
+        flushPendingTreeRender();
     }
 
     function renderFileTree(nodes, container, depth) {
@@ -1147,6 +1153,13 @@
                 }
 
                 item.addEventListener('click', function() {
+                    // 选中态跟随点击（文件/文件夹一致，不受标签切换影响，直到下次切换标签）
+                    document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
+                        el.classList.remove('selected');
+                    });
+                    item.classList.add('selected');
+                    state.treeSelectedPath = node.path;
+
                     var isExpanded = item.classList.contains('expanded');
                     item.classList.toggle('expanded');
                     childrenContainer.classList.toggle('expanded');
@@ -1198,6 +1211,7 @@
                         el.classList.remove('selected');
                     });
                     item.classList.add('selected');
+                    state.treeSelectedPath = node.path;
                     openFile(node.path);
                 });
                 item.addEventListener('contextmenu', function(e) {
@@ -1279,15 +1293,46 @@
         });
     }
 
+    // 按目录路径实时定位 DOM 并刷新其子级。
+    // 右键菜单动作的异步回调执行时，捕获的 DOM 引用可能已被自动刷新重绘替换，必须重新定位
+    function refreshTreeByPath(dirPath) {
+        if (!state.projectRoot) return;
+        if (dirPath === state.projectRoot) {
+            refreshTreeDir(dirPath, elements['file-tree'], 0);
+            return;
+        }
+        var item = findTreeItem(dirPath);
+        var container = item && item.nextElementSibling;
+        if (!container || !container.classList.contains('tree-children')) {
+            refreshProjectTree();
+            return;
+        }
+        // 深度 = 相对项目根的路径段数（根的直接子级 depth 为 1）
+        var rel = dirPath.substring(state.projectRoot.length + 1);
+        refreshTreeDir(dirPath, container, rel.split('/').length);
+    }
+
+    // 按路径展开目录（实时定位 DOM；找不到时仅记录展开状态，后续渲染生效）
+    function expandDirByPath(path) {
+        state.expandedDirs.add(path);
+        var item = findTreeItem(path);
+        if (!item) return;
+        item.classList.add('expanded');
+        var children = item.nextElementSibling;
+        if (children) children.classList.add('expanded');
+        var icon = item.querySelector('.icon');
+        if (icon) icon.innerHTML = SVG_FOLDER_OPEN;
+    }
+
     // 新建文件/文件夹（内联输入名称）
     function startCreate(ctx, isDir) {
         if (!state.projectRoot) {
             updateStatus('未打开文件夹');
             return;
         }
-        if (ctx.expand) ctx.expand();
-
         var parentPath = ctx.node ? ctx.node.path : state.projectRoot;
+        if (ctx.node && ctx.node.is_dir) expandDirByPath(parentPath);
+
         var container = ctx.newItemContainer;
         var depth = ctx.newItemDepth || 0;
 
@@ -1326,7 +1371,7 @@
             invoke(isDir ? 'create_dir' : 'create_file', { path: parentPath + '/' + name }).then(function() {
                 cleanup();
                 endTreeEdit();
-                ctx.refreshChildren();
+                refreshTreeByPath(parentPath);
                 updateStatus('已创建: ' + name);
             }).catch(function(e) {
                 cleanup();
@@ -1357,12 +1402,11 @@
             if (cb.mode === 'cut') return;
             dst = targetDir + '/' + deriveCopyName(cb.name, cb.isDir);
         }
-        var refresh = ctx.node.is_dir ? ctx.refreshChildren : ctx.refreshParent;
-        if (ctx.node.is_dir && ctx.expand) ctx.expand();
+        if (ctx.node.is_dir) expandDirByPath(targetDir);
 
         if (cb.mode === 'copy') {
             invoke('copy_path', { srcPath: cb.path, dstPath: dst }).then(function() {
-                refresh();
+                refreshTreeByPath(targetDir);
                 updateStatus('已粘贴: ' + cb.name);
             }).catch(function(e) {
                 updateStatus('粘贴失败: ' + e);
@@ -1372,7 +1416,7 @@
             invoke('rename_path', { oldPath: src, newPath: dst }).then(function() {
                 state.fileClipboard = null;
                 syncTabsAfterMove(src, dst);
-                refresh();
+                refreshTreeByPath(targetDir);
                 updateStatus('已移动: ' + cb.name);
             }).catch(function(e) {
                 updateStatus('移动失败: ' + e);
@@ -1406,6 +1450,7 @@
     // 删除前确认（优先用系统对话框）
     function confirmDelete(ctx) {
         var node = ctx.node;
+        var parentPath = parentDirOf(node);
         var message = (node.is_dir ? '确定删除文件夹「' : '确定删除文件「') + node.name + '」吗？此操作不可恢复。';
         var doDelete = function() {
             invoke('delete_path', { path: node.path }).then(function() {
@@ -1414,7 +1459,7 @@
                     var p = state.openTabs[i].path;
                     if (p === node.path || p.indexOf(node.path + '/') === 0) closeTab(i);
                 }
-                ctx.refreshParent();
+                refreshTreeByPath(parentPath);
                 updateStatus('已删除: ' + node.name);
             }).catch(function(e) {
                 updateStatus('删除失败: ' + e);
@@ -1572,11 +1617,17 @@
         return null;
     }
 
-    // 文件树选中态跟随当前活动标签（关闭/切换标签后同步）
+    // 文件树选中态：用户显式点击选中的节点优先；未显式选中（或切换了标签）时跟随当前活动标签
     function syncTreeSelectionToActiveTab() {
         document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
             el.classList.remove('selected');
         });
+        if (state.treeSelectedPath) {
+            var sel = findTreeItem(state.treeSelectedPath);
+            // 显式选中的节点被折叠隐藏时保持不高亮，不强行展开
+            if (sel && sel.offsetParent !== null) sel.classList.add('selected');
+            return;
+        }
         if (state.activeTabIndex < 0) return;
         var tab = state.openTabs[state.activeTabIndex];
         if (!tab) return;
@@ -1816,6 +1867,7 @@
         }
 
         state.activeTabIndex = index;
+        state.treeSelectedPath = null;
         renderTabs();
         renderEditor();
         syncTreeSelectionToActiveTab();
@@ -1825,6 +1877,7 @@
     // 关闭标签
     function closeTab(index) {
         state.openTabs.splice(index, 1);
+        state.treeSelectedPath = null;
         if (state.activeTabIndex >= state.openTabs.length) {
             state.activeTabIndex = state.openTabs.length - 1;
         }
@@ -1874,6 +1927,8 @@
         if (contextMenu) {
             contextMenu.remove();
             contextMenu = null;
+            // 菜单打开期间被推迟的树重绘在此补刷
+            flushPendingTreeRender();
         }
     }
 
