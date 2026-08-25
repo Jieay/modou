@@ -405,6 +405,23 @@ pub async fn get_file_tree(
     }
 }
 
+/// 用户登录 shell：getpwuid 是权威来源（与 Terminal.app 一致），
+/// 不依赖容易被启动环境污染的 $SHELL（如从 bash 会话启动应用时 $SHELL=/bin/bash）
+fn default_login_shell() -> String {
+    unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if !pw.is_null() && !(*pw).pw_shell.is_null() {
+            let s = std::ffi::CStr::from_ptr((*pw).pw_shell)
+                .to_string_lossy()
+                .to_string();
+            if !s.is_empty() {
+                return s;
+            }
+        }
+    }
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+}
+
 #[tauri::command]
 pub async fn create_terminal(
     shell: Option<String>,
@@ -412,9 +429,7 @@ pub async fn create_terminal(
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<TerminalInfo, String> {
-    let shell = shell.unwrap_or_else(|| {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
-    });
+    let shell = shell.unwrap_or_else(default_login_shell);
 
     // 优先使用传入 cwd，其次当前窗口打开的项目，最后进程工作目录
     let window_root = state

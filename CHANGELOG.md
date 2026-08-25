@@ -8,6 +8,7 @@
 ### Fixed
 
 - 内置终端中文乱码：GUI 启动缺少 locale 环境变量导致 shell 运行在 C locale（中文文件名显示为 `?`），现在未设置时自动补齐系统语言的 UTF-8 locale；同时修复 PTY 读取把跨缓冲区的多字节 UTF-8 字符切碎成 `` 的问题
+- 内置终端默认 shell 改为账户登录 shell（getpwuid，与 Terminal.app 一致），不再被启动环境的 `$SHELL` 污染（从 bash 会话启动应用时误开 bash 3.2 并提示迁移 zsh）
 
 ## [0.2.3] - 2026-08-20
 
