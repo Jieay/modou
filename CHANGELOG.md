@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 修复打开中文 Markdown 文件弹出「ambiguous unicode characters」提示：Monaco 的歧义字符检查不识别中文语境，把全角标点误判为歧义字符；现在允许中文语言环境（zh-hans/zh-hant），不再误报，仍保留不可见字符和形近字符检查
+
 ## [0.2.6] - 2026-08-25
 
 ### Added

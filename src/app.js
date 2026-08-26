@@ -881,6 +881,11 @@
                         tabSize: 4,
                         insertSpaces: true,
                         padding: { top: 8, bottom: 8 },
+                        // 中文文档的全角标点会被误判为歧义字符并弹提示，
+                        // 允许中文语言环境后不再误报（仍保留不可见字符/形近字符检查）
+                        unicodeHighlight: {
+                            allowedLocales: { 'zh-hans': true, 'zh-hant': true },
+                        },
                     });
 
                     // 监听光标变化
