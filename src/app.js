@@ -485,6 +485,33 @@
     }
 
     // 绑定基础事件
+    // 把旧树中已加载目录的子节点数据合并进新树（按路径匹配，子树整体引用）。
+    // 使整树重绘同步完成、滚动位置精确恢复；内容由 refreshExpandedDirsInBackground 后台校对
+    function mergeLoadedNodes(fresh, old) {
+        var oldByPath = {};
+        (old || []).forEach(function(n) { oldByPath[n.path] = n; });
+        (fresh || []).forEach(function(n) {
+            var o = oldByPath[n.path];
+            if (n.is_dir && o && o.loaded) {
+                n.children = o.children;
+                n.loaded = true;
+            }
+        });
+    }
+
+    // 后台逐个校对已展开目录的内容（内容未变时高度不变、视图不偏移；有变更则就地更新）
+    function refreshExpandedDirsInBackground() {
+        if (!state.projectRoot) return;
+        state.expandedDirs.forEach(function(dirPath) {
+            if (dirPath.indexOf(state.projectRoot + '/') !== 0) return;
+            var item = findTreeItem(dirPath);
+            var container = item && item.nextElementSibling;
+            if (!container || !container.classList.contains('tree-children')) return;
+            var rel = dirPath.substring(state.projectRoot.length + 1);
+            refreshTreeDir(dirPath, container, rel.split('/').length, true);
+        });
+    }
+
     // 刷新文件树（手动刷新按钮 & 目录变更事件共用，展开状态由 expandedDirs 保持）
     function refreshProjectTree() {
         if (!state.projectRoot) {
@@ -493,14 +520,16 @@
         }
         updateStatus('正在刷新...');
         invoke('open_project', { path: state.projectRoot }).then(function(nodes) {
+            // 合并旧树已加载数据，整树同步重绘，滚动位置精确恢复（不弹回顶部/不偏移）
+            mergeLoadedNodes(nodes, state.fileTree);
             state.fileTree = nodes || [];
-            // 保持滚动位置并重挂选中态，避免自动刷新把视图弹回顶部、选中看似消失
             var tree = elements['file-tree'];
             var scrollTop = tree ? tree.scrollTop : 0;
             renderFileTree(state.fileTree);
             if (tree) tree.scrollTop = scrollTop;
             syncTreeSelectionToActiveTab();
             refreshGit();
+            refreshExpandedDirsInBackground();
             updateStatus('已刷新');
         }).catch(function(e) {
             updateStatus('刷新失败: ' + e);
@@ -1304,13 +1333,14 @@
     }
 
     // 重新加载某目录的树节点（path 对应的 container 区域）
-    function refreshTreeDir(path, container, depth) {
+    // skipGit：后台批量校对已展开目录时跳过 git 刷新（由调用方统一刷一次，避免整树级联重绘）
+    function refreshTreeDir(path, container, depth, skipGit) {
         if (deferTreeRenderWhileEditing()) return;
         invoke('list_dir', { path: path }).then(function(children) {
             if (deferTreeRenderWhileEditing()) return;
             container.innerHTML = '';
             renderFileTree(children || [], container, depth);
-            refreshGit();
+            if (!skipGit) refreshGit();
         }).catch(function(e) {
             updateStatus('刷新文件树失败: ' + e);
         });
