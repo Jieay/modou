@@ -494,7 +494,12 @@
         updateStatus('正在刷新...');
         invoke('open_project', { path: state.projectRoot }).then(function(nodes) {
             state.fileTree = nodes || [];
+            // 保持滚动位置并重挂选中态，避免自动刷新把视图弹回顶部、选中看似消失
+            var tree = elements['file-tree'];
+            var scrollTop = tree ? tree.scrollTop : 0;
             renderFileTree(state.fileTree);
+            if (tree) tree.scrollTop = scrollTop;
+            syncTreeSelectionToActiveTab();
             refreshGit();
             updateStatus('已刷新');
         }).catch(function(e) {
