@@ -1829,8 +1829,10 @@
         });
     }
 
-    // 文件树选中态：用户显式选中的节点集合优先；为空（或切换了标签）时跟随当前活动标签
-    function syncTreeSelectionToActiveTab() {
+    // 文件树选中态：用户显式选中的节点集合优先；为空（或切换了标签）时跟随当前活动标签。
+    // scroll=true 仅用于用户主动操作（切换/关闭标签）；被动同步（git 轮询/自动刷新）
+    // 只重挂高亮，不滚动、不强行展开折叠目录，避免打断用户浏览
+    function syncTreeSelectionToActiveTab(scroll) {
         document.querySelectorAll('#file-tree .tree-item.selected').forEach(function(el) {
             el.classList.remove('selected');
         });
@@ -1838,7 +1840,10 @@
             // 显式选中的节点被折叠隐藏时保持不高亮，不强行展开
             state.treeSelPaths.forEach(function(p) {
                 var el = findTreeItem(p);
-                if (el && el.offsetParent !== null) el.classList.add('selected');
+                if (el && el.offsetParent !== null) {
+                    el.classList.add('selected');
+                    if (scroll) el.scrollIntoView({ block: 'nearest' });
+                }
             });
             return;
         }
@@ -1850,9 +1855,9 @@
         // 必须用 offsetParent 判断可见性，否则高亮落在隐藏节点上
         if (item && item.offsetParent !== null) {
             item.classList.add('selected');
-            item.scrollIntoView({ block: 'nearest' });
-        } else {
-            // 目标在折叠的目录中：展开祖先目录后定位（与双击标签定位一致）
+            if (scroll) item.scrollIntoView({ block: 'nearest' });
+        } else if (scroll) {
+            // 目标在折叠的目录中：展开祖先目录后定位（仅用户主动操作时）
             revealInTree(tab.path);
         }
     }
@@ -2084,7 +2089,7 @@
         state.treeSelPaths.clear();
         renderTabs();
         renderEditor();
-        syncTreeSelectionToActiveTab();
+        syncTreeSelectionToActiveTab(true);
         saveSession();
     }
 
@@ -2103,7 +2108,7 @@
             renderEditor();
         }
         renderTabs();
-        syncTreeSelectionToActiveTab();
+        syncTreeSelectionToActiveTab(true);
         saveSession();
         syncWatchedFiles();
     }
@@ -2116,7 +2121,7 @@
         state.activeTabIndex = 0;
         renderTabs();
         renderEditor();
-        syncTreeSelectionToActiveTab();
+        syncTreeSelectionToActiveTab(true);
         saveSession();
         syncWatchedFiles();
     }
