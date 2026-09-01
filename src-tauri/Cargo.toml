@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.2.10"
+version = "0.2.11"
 description = "墨斗（Modou）：轻量代码编辑器 + 原生终端工具"
 authors = ["zhufeng"]
 license = "MIT"
