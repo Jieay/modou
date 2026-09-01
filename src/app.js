@@ -443,13 +443,13 @@
            });
        }
 
-       // git 状态自动刷新：窗口重新聚焦时 + 每 30 秒轮询一次
-       // （外部/内置终端执行 git commit 等操作后，树形徽章和状态栏随之更新）
+       // git 状态自动刷新：窗口重新聚焦时刷新 git；每 30 秒做一次静默整树刷新，
+       // 即使目录监听（FSEvents）在长会话/系统休眠后静默失效也能自愈
        window.addEventListener('focus', function() {
            if (state.projectRoot) refreshGit();
        });
        setInterval(function() {
-           if (state.projectRoot && !document.hidden) refreshGit();
+           if (state.projectRoot && !document.hidden) refreshProjectTree(true);
        }, 30000);
 
        // 初始化终端停靠
@@ -512,27 +512,31 @@
         });
     }
 
-    // 刷新文件树（手动刷新按钮 & 目录变更事件共用，展开状态由 expandedDirs 保持）
-    function refreshProjectTree() {
+    // 刷新文件树（手动刷新按钮 & 目录变更事件 & 30s 自愈轮询共用，展开状态由 expandedDirs 保持）
+    // silent：轮询自愈时不打扰状态栏
+    function refreshProjectTree(silent) {
         if (!state.projectRoot) {
-            updateStatus('未打开文件夹');
+            if (!silent) updateStatus('未打开文件夹');
             return;
         }
-        updateStatus('正在刷新...');
+        if (!silent) updateStatus('正在刷新...');
         invoke('open_project', { path: state.projectRoot }).then(function(nodes) {
-            // 合并旧树已加载数据，整树同步重绘，滚动位置精确恢复（不弹回顶部/不偏移）
+            // 合并旧树已加载数据，整树同步重绘；渲染即使中途异常也要恢复滚动位置
             mergeLoadedNodes(nodes, state.fileTree);
             state.fileTree = nodes || [];
             var tree = elements['file-tree'];
             var scrollTop = tree ? tree.scrollTop : 0;
-            renderFileTree(state.fileTree);
-            if (tree) tree.scrollTop = scrollTop;
+            try {
+                renderFileTree(state.fileTree);
+            } finally {
+                if (tree) tree.scrollTop = scrollTop;
+            }
             syncTreeSelectionToActiveTab();
             refreshGit();
             refreshExpandedDirsInBackground();
-            updateStatus('已刷新');
+            if (!silent) updateStatus('已刷新');
         }).catch(function(e) {
-            updateStatus('刷新失败: ' + e);
+            if (!silent) updateStatus('刷新失败: ' + e);
         });
     }
 
@@ -1108,11 +1112,14 @@
         return false;
     }
 
-    // 内联编辑结束 / 右键菜单关闭后，补一次被推迟的重绘
+    // 内联编辑结束 / 右键菜单关闭后，补一次被推迟的重绘（保持滚动位置）
     function flushPendingTreeRender() {
         if (treeEditingCount === 0 && !contextMenu && treeRenderPending) {
             treeRenderPending = false;
+            var tree = elements['file-tree'];
+            var scrollTop = tree ? tree.scrollTop : 0;
             renderFileTree(state.fileTree);
+            if (tree) tree.scrollTop = scrollTop;
         }
     }
 
@@ -1332,12 +1339,30 @@
         return node.path.substring(0, node.path.length - node.name.length - 1);
     }
 
+    // 在 state.fileTree 数据图中按路径查找节点（供局部刷新回写数据层）
+    function findTreeNodeByPath(nodes, path) {
+        for (var i = 0; i < (nodes || []).length; i++) {
+            if (nodes[i].path === path) return nodes[i];
+            if (nodes[i].is_dir && nodes[i].children) {
+                var hit = findTreeNodeByPath(nodes[i].children, path);
+                if (hit) return hit;
+            }
+        }
+        return null;
+    }
+
     // 重新加载某目录的树节点（path 对应的 container 区域）
     // skipGit：后台批量校对已展开目录时跳过 git 刷新（由调用方统一刷一次，避免整树级联重绘）
     function refreshTreeDir(path, container, depth, skipGit) {
         if (deferTreeRenderWhileEditing()) return;
         invoke('list_dir', { path: path }).then(function(children) {
             if (deferTreeRenderWhileEditing()) return;
+            // 回写数据层，避免下次整树刷新合并到陈旧子节点
+            var node = findTreeNodeByPath(state.fileTree, path);
+            if (node) {
+                node.children = children || [];
+                node.loaded = true;
+            }
             container.innerHTML = '';
             renderFileTree(children || [], container, depth);
             if (!skipGit) refreshGit();
