@@ -504,11 +504,8 @@
         if (!state.projectRoot) return;
         state.expandedDirs.forEach(function(dirPath) {
             if (dirPath.indexOf(state.projectRoot + '/') !== 0) return;
-            var item = findTreeItem(dirPath);
-            var container = item && item.nextElementSibling;
-            if (!container || !container.classList.contains('tree-children')) return;
-            var rel = dirPath.substring(state.projectRoot.length + 1);
-            refreshTreeDir(dirPath, container, rel.split('/').length, true);
+            if (!findTreeItem(dirPath)) return;
+            refreshTreeDir(dirPath, true);
         });
     }
 
@@ -581,7 +578,7 @@
                 newItemContainer: elements['file-tree'],
                 newItemDepth: 0,
                 refreshChildren: function() {
-                    refreshTreeDir(state.projectRoot, elements['file-tree'], 0);
+                    refreshTreeDir(state.projectRoot);
                 }
             }, isDir);
         }
@@ -634,7 +631,7 @@
                     { label: '新建文件夹', action: function() { startCreateAtRoot(true); } },
                     { separator: true },
                     { label: '刷新', action: function() {
-                        refreshTreeDir(state.projectRoot, fileTreeEl, 0);
+                        refreshTreeDir(state.projectRoot);
                     } },
                 ]);
             });
@@ -1199,10 +1196,10 @@
                             state.expandedDirs.add(node.path);
                         },
                         refreshChildren: function() {
-                            refreshTreeNode(node, childrenContainer, depth);
+                            refreshTreeDir(node.path);
                         },
                         refreshParent: function() {
-                            refreshTreeDir(parentDirOf(node), container, depth);
+                            refreshTreeDir(parentDirOf(node));
                         }
                     });
                 });
@@ -1220,8 +1217,8 @@
                     if (!node.loaded) {
                         node.loaded = true;
                         invoke('list_dir', { path: node.path }).then(function(children) {
-                            node.children = children || [];
-                            renderFileTree(node.children, childrenContainer, depth + 1);
+                            // 落地时按路径重新定位容器（响应返回期间整树可能已重绘）
+                            renderDirChildrenByPath(node.path, children);
                         }).catch(function(e) {
                             console.error('加载目录失败:', e);
                         });
@@ -1249,11 +1246,10 @@
                     if (!isExpanded && !node.loaded) {
                         node.loaded = true;
                         invoke('list_dir', { path: node.path }).then(function(children) {
-                            node.children = children || [];
-                            renderFileTree(node.children, childrenContainer, depth + 1);
+                            // 落地时按路径重新定位容器（响应返回期间整树可能已重绘）
+                            renderDirChildrenByPath(node.path, children);
                         }).catch(function(e) {
                             console.error('加载目录失败:', e);
-                            childrenContainer.innerHTML = '<div class="tree-item" style="color:#858585;">加载失败</div>';
                         });
                     }
                 });
@@ -1294,7 +1290,7 @@
                     showTreeContextMenu(e.clientX, e.clientY, {
                         item: item, node: node, nameSpan: name,
                         refreshParent: function() {
-                            refreshTreeDir(parentDirOf(node), container, depth);
+                            refreshTreeDir(parentDirOf(node));
                         }
                     });
                 });
@@ -1351,58 +1347,54 @@
         return null;
     }
 
-    // 重新加载某目录的树节点（path 对应的 container 区域）
+    // 目录子级的落地渲染（所有异步 list_dir 的统一收口）：
+    // 1. 回写数据层（避免下次整树刷新合并到陈旧子节点）
+    // 2. DOM 写入时按路径重新定位容器 —— 异步响应返回期间整树可能已被重绘
+    //    （git 徽章刷新/整树刷新），写入捕获的旧容器会落到脱离文档的节点上，
+    //    表现为文件夹下的文件「消失」，下次刷新顺序变化又「出现」
+    function renderDirChildrenByPath(path, children) {
+        var node = findTreeNodeByPath(state.fileTree, path);
+        if (node) {
+            node.children = children || [];
+            node.loaded = true;
+        }
+        var item = null;
+        var live;
+        if (path === state.projectRoot) {
+            live = elements['file-tree'];
+        } else {
+            item = findTreeItem(path);
+            live = item && item.nextElementSibling;
+            if (!live || !live.classList.contains('tree-children')) return;
+        }
+        // 深度从实时定位到的节点缩进反推（paddingLeft = 8 + depth * 12）
+        var depth = 0;
+        if (item) depth = (parseInt(item.style.paddingLeft, 10) - 8) / 12 + 1;
+        live.innerHTML = '';
+        renderFileTree(children || [], live, depth);
+    }
+
+    // 重新加载某目录的树节点（数据层 + DOM 均按路径实时定位）
     // skipGit：后台批量校对已展开目录时跳过 git 刷新（由调用方统一刷一次，避免整树级联重绘）
-    function refreshTreeDir(path, container, depth, skipGit) {
+    function refreshTreeDir(path, skipGit) {
         if (deferTreeRenderWhileEditing()) return;
         invoke('list_dir', { path: path }).then(function(children) {
             if (deferTreeRenderWhileEditing()) return;
-            // 回写数据层，避免下次整树刷新合并到陈旧子节点
-            var node = findTreeNodeByPath(state.fileTree, path);
-            if (node) {
-                node.children = children || [];
-                node.loaded = true;
-            }
-            container.innerHTML = '';
-            renderFileTree(children || [], container, depth);
+            renderDirChildrenByPath(path, children);
             if (!skipGit) refreshGit();
         }).catch(function(e) {
             updateStatus('刷新文件树失败: ' + e);
         });
     }
 
-    // 重新加载目录节点的子级（同步 node.children 供后续展开复用）
-    function refreshTreeNode(node, childrenContainer, depth) {
-        if (deferTreeRenderWhileEditing()) return;
-        invoke('list_dir', { path: node.path }).then(function(children) {
-            if (deferTreeRenderWhileEditing()) return;
-            node.children = children || [];
-            node.loaded = true;
-            childrenContainer.innerHTML = '';
-            renderFileTree(node.children, childrenContainer, depth + 1);
-            refreshGit();
-        }).catch(function(e) {
-            updateStatus('刷新文件树失败: ' + e);
-        });
-    }
-
-    // 按目录路径实时定位 DOM 并刷新其子级。
-    // 右键菜单动作的异步回调执行时，捕获的 DOM 引用可能已被自动刷新重绘替换，必须重新定位
+    // 按目录路径刷新其子级（节点不在当前 DOM 时退化为整树刷新）
     function refreshTreeByPath(dirPath) {
         if (!state.projectRoot) return;
-        if (dirPath === state.projectRoot) {
-            refreshTreeDir(dirPath, elements['file-tree'], 0);
-            return;
-        }
-        var item = findTreeItem(dirPath);
-        var container = item && item.nextElementSibling;
-        if (!container || !container.classList.contains('tree-children')) {
+        if (dirPath !== state.projectRoot && !findTreeItem(dirPath)) {
             refreshProjectTree();
             return;
         }
-        // 深度 = 相对项目根的路径段数（根的直接子级 depth 为 1）
-        var rel = dirPath.substring(state.projectRoot.length + 1);
-        refreshTreeDir(dirPath, container, rel.split('/').length);
+        refreshTreeDir(dirPath);
     }
 
     // 按路径展开目录（实时定位 DOM；找不到时仅记录展开状态，后续渲染生效）
