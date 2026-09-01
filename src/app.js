@@ -921,6 +921,9 @@
                         unicodeHighlight: {
                             allowedLocales: { 'zh-hans': true, 'zh-hant': true },
                         },
+                        // 只向剪贴板写纯文本：部分 macOS/Sublime 组合优先读取
+                        // HTML flavor 并把多行内容压成一行；代价是富文本应用粘贴不带语法颜色
+                        copyWithSyntaxHighlighting: false,
                     });
 
                     // 监听光标变化
@@ -1347,6 +1350,16 @@
         return null;
     }
 
+    // 浅比较两个树节点数组（用于跳过无变化的 DOM 重建，减少闪动）
+    function sameTreeNodes(a, b) {
+        a = a || []; b = b || [];
+        if (a.length !== b.length) return false;
+        for (var i = 0; i < a.length; i++) {
+            if (a[i].path !== b[i].path || a[i].name !== b[i].name || a[i].is_dir !== b[i].is_dir) return false;
+        }
+        return true;
+    }
+
     // 目录子级的落地渲染（所有异步 list_dir 的统一收口）：
     // 1. 回写数据层（避免下次整树刷新合并到陈旧子节点）
     // 2. DOM 写入时按路径重新定位容器 —— 异步响应返回期间整树可能已被重绘
@@ -1354,10 +1367,13 @@
     //    表现为文件夹下的文件「消失」，下次刷新顺序变化又「出现」
     function renderDirChildrenByPath(path, children) {
         var node = findTreeNodeByPath(state.fileTree, path);
+        var prev = node ? node.children : null;
         if (node) {
             node.children = children || [];
             node.loaded = true;
         }
+        // 内容未变化时跳过 DOM 重建（后台校对/轮询周期性触发，无差别重建会造成闪动）
+        if (prev && sameTreeNodes(prev, children)) return;
         var item = null;
         var live;
         if (path === state.projectRoot) {
@@ -2468,6 +2484,23 @@
         updateGitChanges();
     }
 
+    // git 变更集比较（用于跳过无变化的重绘，减少树闪动）
+    function sameGitChanges(a, b) {
+        var ka = Object.keys(a), kb = Object.keys(b);
+        if (ka.length !== kb.length) return false;
+        for (var i = 0; i < ka.length; i++) {
+            if (a[ka[i]] !== b[ka[i]]) return false;
+        }
+        return true;
+    }
+
+    function sameDirSet(a, b) {
+        if (a.size !== b.size) return false;
+        var same = true;
+        a.forEach(function(p) { if (!b.has(p)) same = false; });
+        return same;
+    }
+
     // 拉取完整变更状态表并应用到文件树（M/A 徽章、目录着色）
     function updateGitChanges() {
         invoke('get_git_changes').then(function(list) {
@@ -2483,6 +2516,10 @@
                     }
                 }
             });
+            // 变更集未变化时跳过重绘，避免每次轮询都整树重建 DOM（闪动）
+            if (sameGitChanges(map, state.gitChanges) && sameDirSet(dirs, state.gitChangedDirs)) {
+                return;
+            }
             state.gitChanges = map;
             state.gitChangedDirs = dirs;
             // 保持滚动位置重绘树以应用徽章（展开状态由 expandedDirs 保持）
