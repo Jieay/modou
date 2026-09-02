@@ -509,6 +509,26 @@
         });
     }
 
+    // 计算当前可见树的指纹（结构 + 展开状态 + git 徽章）。
+    // 与 VS Code 的增量更新思路一致：内容没变就不动 DOM，避免周期性整树重建造成闪动
+    function treeFingerprint() {
+        var parts = [];
+        (function walk(nodes, depth) {
+            (nodes || []).forEach(function(n) {
+                parts.push(depth, n.path, n.is_dir ? 'd' : 'f', state.gitChanges[n.path] || '');
+                if (n.is_dir && state.expandedDirs.has(n.path) && n.children) {
+                    walk(n.children, depth + 1);
+                }
+            });
+        })(state.fileTree, 0);
+        var dirs = Array.from(state.expandedDirs);
+        dirs.sort();
+        parts.push('|', dirs.join(','));
+        var badges = Object.keys(state.gitChanges).sort().map(function(k) { return k + state.gitChanges[k]; });
+        parts.push('|', badges.join(','));
+        return parts.join('');
+    }
+
     // 刷新文件树（手动刷新按钮 & 目录变更事件 & 30s 自愈轮询共用，展开状态由 expandedDirs 保持）
     // silent：轮询自愈时不打扰状态栏
     function refreshProjectTree(silent) {
@@ -521,14 +541,19 @@
             // 合并旧树已加载数据，整树同步重绘；渲染即使中途异常也要恢复滚动位置
             mergeLoadedNodes(nodes, state.fileTree);
             state.fileTree = nodes || [];
-            var tree = elements['file-tree'];
-            var scrollTop = tree ? tree.scrollTop : 0;
-            try {
-                renderFileTree(state.fileTree);
-            } finally {
-                if (tree) tree.scrollTop = scrollTop;
+            // 可见内容（结构/展开/徽章）未变化时跳过重绘，消除周期性闪动
+            var fp = treeFingerprint();
+            if (fp !== state.treeRenderFingerprint) {
+                state.treeRenderFingerprint = fp;
+                var tree = elements['file-tree'];
+                var scrollTop = tree ? tree.scrollTop : 0;
+                try {
+                    renderFileTree(state.fileTree);
+                } finally {
+                    if (tree) tree.scrollTop = scrollTop;
+                }
+                syncTreeSelectionToActiveTab();
             }
-            syncTreeSelectionToActiveTab();
             refreshGit();
             refreshExpandedDirsInBackground();
             if (!silent) updateStatus('已刷新');
