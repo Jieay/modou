@@ -951,6 +951,30 @@
                         copyWithSyntaxHighlighting: false,
                     });
 
+                    // 复制/剪切强制只写纯文本：WKWebView 在部分 macOS 版本上写出的
+                    // text/html flavor 会被 Sublime 等粘贴方优先读取并压成一行。
+                    // 在捕获阶段接管事件，保证剪贴板里只有带换行的 text/plain
+                    // （VSCode 能正常粘贴的关键也是 text/plain 中保留了换行）。
+                    function plainTextCopyHandler(e) {
+                        // 只接管 Monaco 隐藏输入框上的复制（放过查找框等其它输入框）
+                        if (!e.target || !e.target.classList || !e.target.classList.contains('inputarea')) return;
+                        if (!state.monacoEditor || !e.clipboardData) return;
+                        var sels = state.monacoEditor.getSelections() || [];
+                        // 空选区（复制整行）和多光标交给 Monaco 默认处理
+                        if (sels.length !== 1 || sels[0].isEmpty()) return;
+                        var text = state.monacoEditor.getModel().getValueInRange(sels[0]);
+                        if (!text) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.clipboardData.setData('text/plain', text);
+                        if (e.type === 'cut') {
+                            state.monacoEditor.executeEdits('modou-cut', [{ range: sels[0], text: '' }]);
+                            state.monacoEditor.pushUndoStop();
+                        }
+                    }
+                    elements['monaco-editor'].addEventListener('copy', plainTextCopyHandler, true);
+                    elements['monaco-editor'].addEventListener('cut', plainTextCopyHandler, true);
+
                     // 监听光标变化
                     state.monacoEditor.onDidChangeCursorPosition(function(e) {
                         var pos = e.position;
