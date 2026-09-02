@@ -30,7 +30,7 @@ libc = "0.2"
 git2 = "0.19"
 notify = "6"
 
-toml = "0.8"
+toml = "1.1"
 core-foundation = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
